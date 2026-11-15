@@ -10,9 +10,9 @@ Our team consists of veteran developers from the RetroPortingToolkit team, and F
 
 ## F-Zero Forever includes:
 
-## 75 races. 15 cups.
+## 85 races. 17 cups.
 
-We worked with the community and combined several of the highest quality rom hacks for the game, including: **Community Grand Prix, Astra Front, Bower, and MAX**. You can even bring your own rom hacks and create your own races. This is the largest combination of tracks EVER for F-Zero.
+We worked with the community and combined several of the highest quality rom hacks for the game, including: **Community Grand Prix, Astra Velocity, Bower, and MAX**. You can even bring your own rom hacks and create your own races. This is the largest combination of tracks EVER for F-Zero.
 
 > All bundled ROM hack content is included with explicit permission from its authors and creators. AI was not used in any way to modify the ROM hacks or their content. The inclusion of their work in this project should not be taken as a statement of their views on AI.
 
@@ -122,9 +122,17 @@ With the build dependencies installed, place your legally obtained USA ROM at `f
 
 ```bash
 bash tools/regen.sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
 ```
+
+Then build and test with your platform's script:
+
+| Platform | Command |
+| --- | --- |
+| Windows (MSYS2 MinGW) | `powershell -File tools\build-windows.ps1` |
+| Linux | `bash tools/build-linux.sh` |
+| macOS | `bash tools/build-macos.sh` |
+
+Each script checks its dependencies and leaves a runnable build in `build-release-<platform>`; add `--packs DIR` to stage player releases. Plain CMake works too: `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build`.
 
 The regeneration script verifies the ROM before generating source. ROMs, generated files, saves, captures, and builds stay out of git.
 
@@ -134,7 +142,7 @@ The regeneration script verifies the ROM before generating source. ROMs, generat
 
 Found a problem? [Open an issue](https://github.com/retroportingtoolkit/FZeroSNESRecomp/issues) with your build version, platform, enabled mods, and steps to reproduce it.
 
-For Windows playtest builds, reproduce the issue, quit, and run **Collect diagnostics.cmd** beside the game. Nothing uploads automatically. Diagnostic archives contain game memory, saves, and local paths; share them privately when appropriate.
+Reproduce the issue, quit, and run **Collect diagnostics.cmd** (Windows), **Collect diagnostics.sh** (Linux) or **Collect diagnostics.command** (macOS) beside the game. Nothing uploads automatically. Diagnostic archives contain game memory, saves, and local paths; share them privately when appropriate.
 
 [How to collect and replay diagnostics →](docs/DIAGNOSTIC_REPLAY.md)
 

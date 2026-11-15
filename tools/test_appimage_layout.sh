@@ -46,11 +46,20 @@ grep -q 'RECOMP_HOST_LD_LIBRARY_PATH' "$APPDIR/AppRun" || {
   exit 1
 }
 
-# Everything the binary needs must resolve with LD_LIBRARY_PATH unset -- that
+# The game and its native content helpers share usr/lib. FZeroConvertContent
+# is a self-contained PyInstaller binary and is not resolved through usr/lib.
+LDD_OUT=""
+for elf in "F-Zero Forever" FZeroExportCourses FZeroInspectPacks; do
+  [ -x "$APPDIR/usr/bin/$elf" ] || continue
+  LDD_OUT="$LDD_OUT
+$(env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/$elf")"
+done
+
+# Everything they need must resolve with LD_LIBRARY_PATH unset -- that
 # is exactly what the shipped AppRun gives the loader.
-if env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/F-Zero Forever" | grep -q 'not found'; then
-  echo "binary has unresolved libraries without LD_LIBRARY_PATH" >&2
-  env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/F-Zero Forever" | grep 'not found' >&2
+if printf '%s\n' "$LDD_OUT" | grep -q 'not found'; then
+  echo "bundled executables have unresolved libraries without LD_LIBRARY_PATH" >&2
+  printf '%s\n' "$LDD_OUT" | grep 'not found' >&2
   exit 1
 fi
 
@@ -58,7 +67,7 @@ fi
 # An unreachable copy is only ever reachable by setting the global
 # LD_LIBRARY_PATH above, so leaving one there invites the bug back.
 if [ -d "$APPDIR/usr/lib" ]; then
-  REACH="$(env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/F-Zero Forever" \
+  REACH="$(printf '%s\n' "$LDD_OUT" \
             | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\//) print $i }' \
             | while read -r p; do readlink -f "$p" 2>/dev/null || true; done \
             | sort -u)"

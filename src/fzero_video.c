@@ -69,6 +69,10 @@ double FzeroPresentationHz(unsigned fps, double refresh) {
   return fmin(refresh, 360);
 }
 
+int FzeroPresentationSwapInterval(const FzeroVideoSettings *s) {
+  return s->fps_enabled && s->fps && FzeroValidFps(s->fps) ? 0 : 1;
+}
+
 FzeroViewport FzeroCalculateViewport(const FzeroVideoSettings *s, int w, int h) {
   double aspect = 4.0 / 3.0;
   if (s->enhanced) {
@@ -264,7 +268,7 @@ void FzeroClockSimulationDone(FzeroClock *c) {
 bool FzeroClockPresentationDue(const FzeroClock *c, double now) {
   return now >= c->next_presentation;
 }
-void FzeroClockPresentationDone(FzeroClock *c, double now) {
+void FzeroClockPresentationBegin(FzeroClock *c, double now) {
   double period = 1.0 / c->presentation_hz;
   double overdue = fmax(0, now - c->next_presentation);
   uint64_t missed = (uint64_t)floor(overdue / period);

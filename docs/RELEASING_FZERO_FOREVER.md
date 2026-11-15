@@ -29,7 +29,18 @@ Use the plain version without a `fzero-55-preview` label.
 
 ## Current release
 
-**0.18.0** packages the accepted HD quality burndown: reconstructed perspective,
+**0.19.1** displays records from all enabled cars by default, with per-row
+portraits and X/Y car filters. Practice can select another car's ghost with
+L/R on its league screen, while preserving the current car's saved recording.
+Native ghost saves and current-build borrowed save-state reloads are qualified
+for Dragon Bird and White Cat. Existing native saves need no conversion.
+
+The release retains **0.19.0**, which restores the native CHECK rear warning
+in each multiplayer view and uses the selected FPS target to pace presentation when it is set
+explicitly. Automatic mode still follows the display. This release includes
+the fullscreen scheduling and Gaiden-style repeated course import fixes from
+0.18.2. The affected AMD system still needs a fullscreen startup retest.
+Both editions retain the accepted HD quality work: reconstructed perspective,
 exact nearest presentation, GPU cameras for every local player, separate
 2x/4x/8x detail and Off/2-sample smoothing, and a records return-fade fix.
 Fresh defaults are adaptive Fit, 4x detail, smoothing off and automatic FPS;
@@ -38,11 +49,16 @@ dropdown and user-supplied finish fanfare remain available.
 
 Both editions retain course sources, credits and freshly generated prebuilt
 caches. Only the with-MSU edition includes approved CGP/Astra recordings;
-neither includes personal callout WAVs. Shared engine `fb8cf15d` and launcher
+neither includes personal callout WAVs. Shared engine `d1ace29a` and launcher
 `b13c876` are frozen to the accepted implementation. Release tracking:
-`beads-8wg.5.127`; quality qualification: `beads-8wg.5.126`.
+`beads-8wg.5.131` and `beads-8wg.5.132`; quality qualification: `beads-8wg.5.126`.
 
 ## Preparing a release
+
+The Astra Velocity preview's with-MSU edition includes twenty verified P3
+recordings alongside the CGP soundtrack. Import them with
+`tools/import_astra_velocity_music.py` and provide `--astra-velocity-music`
+when the retained source is outside `music/astra-velocity`.
 
 Tester bundles use the default `--profile player`: runtime resources, short
 launch instructions, credits and licenses only. Integrity manifests remain
@@ -72,7 +88,8 @@ directory. Changed/new projects still rebuild automatically.
 3. Build and perform checks appropriate to the actual changes, then commit.
 4. Package both music variants with `tools/make_release.py`, omitting
    `--label`, and passing the reviewed editable course set with
-   `--packs captures/reconstructed-projects-03/packs`. Keep its extraction
+   `--packs captures/astra-velocity-020/packs` (four bundled packs, 85 imported courses).
+   Regenerate this set with `tools/export_runtime_packs.py` when needed. Keep its extraction
    manifests for the pack parity check; do not package the installed cache.
    Its version checks require the cache, executable and `VERSION`
    to agree. A fix release produces filenames such as

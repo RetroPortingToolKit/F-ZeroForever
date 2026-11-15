@@ -1,6 +1,6 @@
 """Private-ROM smoke qualification for a newly added course pack.
 
-Checks every course's real SPC selection/render capture on retail and expanded
+Checks every course's SPC selection or installed PCM playback/render capture on retail and expanded
 engines, then both engines' completed-cup records, detail navigation, vehicle
 isolation and battery-save reload. Finish fixtures seed times, not driven laps.
 """
@@ -14,8 +14,9 @@ import re
 import shutil
 import subprocess
 import sys
+import wave
 
-from validate_native_menus import player_route
+from validate_native_menus import player_route, ROSTERS
 from validate_records import BEST, EMPTY, ROUTE, totals
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,9 @@ def main():
     p.add_argument('--source', type=Path, help='Optional original ROM for independent metadata comparison')
     p.add_argument('--courses-only', action='store_true')
     p.add_argument('--records-only', action='store_true')
+    p.add_argument('--vehicle-engine',choices=('both','stock','expanded'),default='both')
+    p.add_argument('--music', choices=('native', 'pcm'), default='native',
+                   help='Check native SPC selection or installed course PCM playback')
     a = p.parse_args()
     build, stock, out = a.build.resolve(), a.stock.resolve(), a.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -72,7 +76,15 @@ def main():
     base = dict(clean, FZERO_DELUXE_DATA='embedded', FZERO_BS_CARS='0', FZERO_BS_TRACKS='0',
                 FZERO_CGP_REBALANCE='0', FZERO_RULES='', FZERO_TRACK_PACKS='packs',
                 FZERO_TEST_SAVE_SRAM='1', FZERO_PACKS_DIR=str(out/'mods/packs'), FZERO_PACK_LOADER='1')
+    if a.music == 'pcm':
+        base.update(FZERO_RULES='cgp-msu', SNESRECOMP_MSU1=str(out/'mods/packs/installed-music'))
+    # Releases ship serially populated caches. Build this same cache before
+    # concurrent game processes: cold extraction into one directory can race.
+    inspection = subprocess.run([str(build/'FZeroInspectPacks.exe'), str(out/'mods/packs')],
+                                cwd=out,env=clean,capture_output=True,text=True,check=True)
+    (out/'inspect.log').write_text(inspection.stdout+inspection.stderr,encoding='utf-8')
     results = []
+    engines=(0,1) if a.vehicle_engine=='both' else (int(a.vehicle_engine=='expanded'),)
 
     def run(label, env, frames, inputs='', **extra):
         setting = dict(env, SNESRECOMP_INPUT_SCRIPT=inputs,
@@ -95,21 +107,30 @@ def main():
         env = dict(base, FZERO_CGP_CARS='7' if expanded else '0', SNESRECOMP_SAVE_ROOT=f's{index}',
                    FZERO_CUP=f"{a.pack}/{track['cup']}", FZERO_TEST_COURSE=str(ordinal), FZERO_ASPECT='21:9')
         inputs = player_route(0, 7)+',600-606:8,730-736:8,900-906:8,960-966:8' if expanded else ROUTE
-        ram, _, log = run(label, env, 1750, inputs, FZERO_RULE_PROBE='1')
+        audio = {'SNESRECOMP_WAV': str(out/f'{label}.wav')} if a.music == 'pcm' else {}
+        ram, _, log = run(label, env, 1750, inputs, FZERO_RULE_PROBE='1', **audio)
         assert ram[0x54:0x56] == b'\2\3', (label, ram[0x54:0x57].hex())
         from audit_track_metadata import SONGS
         apu = (out/f'{label}.apu').read_bytes()
-        assert apu[0x7fe] == 8+SONGS.index(track['snes_music']), (label, apu[0x7fe])
+        if a.music == 'pcm':
+            # Guest RAM retains command 6; the host resolves the course's PCM.
+            assert ram[0x180] == 6 and ram[0x183] == 1, (label, 'Race music adapter inactive')
+            assert ram[0x182] == 0, (label, 'PCM fallback occurred')
+            with wave.open(str(out/f'{label}.wav')) as recording:
+                recording.setpos(max(0, recording.getnframes() - 64080))
+                assert any(recording.readframes(64080)), (label, 'Silent mixed output')
+        else:
+            assert apu[0x7fe] == 8+SONGS.index(track['snes_music']), (label, apu[0x7fe])
         assert 'rules-probe: PASS' in log
         results.append(label+': race/music/mechanics PASS')
         print(results[-1], flush=True)
 
     if not a.records_only:
-        cases = [(i+expanded*len(tracks), expanded, t) for expanded in (0, 1) for i,t in enumerate(tracks)]
+        cases = [(i+expanded*len(tracks), expanded, t) for expanded in engines for i,t in enumerate(tracks)]
         with ThreadPoolExecutor(max_workers=3) as pool:
             list(pool.map(course, cases))
     if not a.courses_only:
-        for expanded in (0, 1):
+        for expanded in engines:
             for ci, cup in enumerate(cups):
                 label = f"records-{'expanded' if expanded else 'retail'}-{cup}"
                 env = dict(base, FZERO_CGP_CARS='7' if expanded else '0',
@@ -118,7 +139,7 @@ def main():
                 ram, sram, log = run(label, env, 6400, ROUTE, FZERO_TEST_RECORDS_CUP='1',
                                     FZERO_STATE_SAVE=state, FZERO_TEST_SAVE_FRAME='6300')
                 assert ram[0x54:0x57] == b'\0\3\0' and log.count('records-fixture: finish crossing') == 5, label
-                vehicle = 'BLUE FALCON' if expanded else 'SHARED RECORDS'
+                vehicle = 'ALL CARS'
                 match = re.findall(rf'\[records-browser\] page=(\d+) vehicle={vehicle} selected=(\d+)', log)[-1]
                 selected = int(match[1]); column = selected//5
                 offset = (5, 0xac, 0x153)[column]-5
@@ -128,8 +149,13 @@ def main():
                 before = saves[0].read_bytes()
                 navigation = [('page-return', '60-66:1024,120-126:2048', BEST)]
                 if expanded:
-                    navigation += [('other-car', '60-66:512', EMPTY),
-                                   ('return-car', '60-66:512,120-126:2', BEST)]
+                    # All Cars precedes the native roster, whose first entry
+                    # can be an imported car. Select the actual Blue Falcon
+                    # row before testing its neighboring empty identity.
+                    current=','.join(f'{40+i*20}-{46+i*20}:512' for i in range(1+ROSTERS[7].index(0)))
+                    navigation += [('current-car',current,BEST),
+                                   ('other-car',current+',160-166:512',EMPTY),
+                                   ('return-car',current+',160-166:512,220-226:2',BEST)]
                 for step, buttons, expected in navigation:
                     ram, sram, _ = run(label+'-'+step, env, 300, buttons, FZERO_STATE_LOAD=state)
                     assert ram[0x54:0x57] == b'\0\3\0' and totals(sram[offset:]) == [expected]*5, (label, step)

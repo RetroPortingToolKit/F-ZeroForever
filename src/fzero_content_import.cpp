@@ -19,6 +19,13 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -399,27 +406,23 @@ std::wstring quote(const std::wstring &s) {
   return out + L'"';
 }
 #endif
-void convert(const fs::path &source, const fs::path &stock,
-             const fs::path &helpers, const fs::path &out,
-             const fs::path &reports, const fs::path &answers) {
-  auto exe = helpers / "FZeroConvertContent.exe";
-  need(fs::is_regular_file(exe),
-       "Patch conversion tools are not installed in this build. See "
-       "mods/CONVERSION.md for the conversion steps.");
-  need(fs::is_regular_file(stock),
-       "Select your original F-Zero game file on the main page first, then "
-       "import the patch.");
+// Helper executables carry the host's executable suffix.
+fs::path helperPath(const fs::path &helpers, const char *name) {
+#ifdef _WIN32
+  return helpers / (std::string(name) + ".exe");
+#else
+  return helpers / name;
+#endif
+}
+// Run a helper from `cwd` with stdout and stderr captured in `log`. Returns its
+// exit status; a helper still running after ten minutes is killed and reports 1.
+int runHelper(const fs::path &exe, const std::vector<fs::path> &args,
+              const fs::path &cwd, const fs::path &log) {
+  constexpr unsigned timeoutMs = 10 * 60 * 1000;
 #ifdef _WIN32
   std::wstring cmd = quote(exe.wstring());
-  for (auto &arg : std::vector<std::wstring>{
-           source.wstring(), L"--stock", stock.wstring(), L"--out",
-           out.wstring(), L"--exporter",
-           (helpers / "FZeroExportCourses.exe").wstring(), L"--inspector",
-           (helpers / "FZeroInspectPacks.exe").wstring()})
-    cmd += L" " + quote(arg);
-  if (!answers.empty())
-    cmd += L" --answers " + quote(answers.wstring());
-  auto log = out.parent_path() / "conversion.log";
+  for (auto &arg : args)
+    cmd += L" " + quote(arg.wstring());
   SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
   HANDLE output =
       CreateFileW(log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security,
@@ -432,17 +435,86 @@ void convert(const fs::path &source, const fs::path &stock,
   startup.hStdError = output;
   PROCESS_INFORMATION process{};
   BOOL started = CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, TRUE,
-                                CREATE_NO_WINDOW, nullptr, helpers.c_str(),
+                                CREATE_NO_WINDOW, nullptr, cwd.c_str(),
                                 &startup, &process);
   CloseHandle(output);
   need(started != 0, "Cannot start the conversion tool.");
   CloseHandle(process.hThread);
-  DWORD waited = WaitForSingleObject(process.hProcess, 10 * 60 * 1000);
+  DWORD waited = WaitForSingleObject(process.hProcess, timeoutMs);
   DWORD code = 1;
   if (waited == WAIT_TIMEOUT)
     TerminateProcess(process.hProcess, 1);
   GetExitCodeProcess(process.hProcess, &code);
   CloseHandle(process.hProcess);
+  return (int)code;
+#else
+  // Build argv before fork: the child may only make async-signal-safe calls.
+  std::vector<std::string> storage{exe.string()};
+  for (auto &arg : args)
+    storage.push_back(arg.string());
+  std::vector<char *> argv;
+  for (auto &arg : storage)
+    argv.push_back(arg.data());
+  argv.push_back(nullptr);
+  std::string directory = cwd.string();
+  int output = open(log.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+  need(output >= 0, "Cannot create conversion log.");
+  pid_t child = fork();
+  if (child == 0) {
+    // dup2 clears close-on-exec on the duplicated descriptors only.
+    if (dup2(output, STDOUT_FILENO) < 0 || dup2(output, STDERR_FILENO) < 0 ||
+        chdir(directory.c_str()) != 0)
+      _exit(127);
+    execv(argv[0], argv.data());
+    _exit(127);
+  }
+  close(output);
+  need(child > 0, "Cannot start the conversion tool.");
+  int status = 0;
+  auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  for (;;) {
+    pid_t done = waitpid(child, &status, WNOHANG);
+    if (done == child)
+      break;
+    if (done < 0 && errno != EINTR)
+      return 1;
+    if (std::chrono::steady_clock::now() >= deadline) {
+      kill(child, SIGKILL);
+      while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+      }
+      return 1;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+#endif
+}
+void convert(const fs::path &source, const fs::path &stock,
+             const fs::path &helpers, const fs::path &out,
+             const fs::path &reports, const fs::path &answers) {
+  auto exe = helperPath(helpers, "FZeroConvertContent");
+  need(fs::is_regular_file(exe),
+       "Patch conversion tools are not installed in this build. See "
+       "mods/CONVERSION.md for the conversion steps.");
+  need(fs::is_regular_file(stock),
+       "Select your original F-Zero game file on the main page first, then "
+       "import the patch.");
+  std::vector<fs::path> args{source,
+                             "--stock",
+                             stock,
+                             "--out",
+                             out,
+                             "--exporter",
+                             helperPath(helpers, "FZeroExportCourses"),
+                             "--inspector",
+                             helperPath(helpers, "FZeroInspectPacks")};
+  if (!answers.empty()) {
+    args.push_back("--answers");
+    args.push_back(answers);
+  }
+  auto log = out.parent_path() / "conversion.log";
+  int code = runHelper(exe, args, helpers, log);
   if (code != 0) {
     std::string message =
         code == 2
@@ -472,15 +544,6 @@ void convert(const fs::path &source, const fs::path &stock,
           reports / "conversion-report.json");
     throw std::runtime_error(message);
   }
-#else
-  (void)source;
-  (void)out;
-  (void)reports;
-  (void)answers;
-  throw std::runtime_error(
-      "Patch conversion in this spike is available on Windows. See "
-      "mods/CONVERSION.md for the command-line workflow.");
-#endif
 }
 struct Stage {
   fs::path path;

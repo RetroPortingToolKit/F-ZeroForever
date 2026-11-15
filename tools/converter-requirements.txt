@@ -1,0 +1,3 @@
+# Python packages for the FZeroConvertContent importer helper (PyInstaller build).
+pyinstaller==6.21.0
+pillow==12.3.0

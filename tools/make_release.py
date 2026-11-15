@@ -1,7 +1,15 @@
-"""Stage a ROM-free Windows x64 release and resolve its runtime DLL closure.
+"""Stage a ROM-free player release for Windows, Linux or macOS.
 
-Build Release first. Requires MSYS2 objdump; never edits or deletes source/build
-directories. Refuses to reuse a staging directory, preventing stale payloads.
+Build Release on the target platform first (tools/build_release.py does both).
+The bundled content is identical on every platform; only the executables and
+their runtime closure differ:
+
+  windows  F-Zero Forever.exe + helpers + resolved MinGW DLLs    -> .zip
+  linux    F-Zero Forever.AppImage (game + helpers inside)       -> .tar.gz
+  macos    F-Zero Forever + helpers + lib/*.dylib, ad-hoc signed -> .zip
+
+Never edits or deletes source/build directories. Refuses to reuse a staging
+directory, preventing stale payloads.
 """
 import argparse
 import hashlib
@@ -12,20 +20,26 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
+import tarfile
 import zipfile
 from import_cgp_music import verify_music, stage_course_music
-from import_astra_music import stage_music as stage_astra_music
-from bundled_content import write_index
+from import_astra_velocity_music import stage_music as stage_astra_velocity_music
+from bundled_content import BUNDLED_PACK_IDS, write_index
 
 ROOT = Path(__file__).resolve().parents[1]
-p = argparse.ArgumentParser(description=__doc__)
+HOST_PLATFORM = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
+p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+p.add_argument("--platform", choices=("windows", "linux", "macos"), default=HOST_PLATFORM,
+               help="Release platform; must match the build host (default: this host)")
 p.add_argument("--build", default="build-release")
 p.add_argument("--mingw", default="C:/msys64/mingw64")
 p.add_argument("--output", default="release-stage", help="Parent for a fresh versioned staging directory")
 p.add_argument("--label", default="", help="Optional local build label, such as fzero-55")
-p.add_argument("--exe", default="F-Zero Forever.exe", help="Desktop executable filename in the build directory")
+p.add_argument("--exe", default=None, help="Desktop executable filename in the build directory "
+               "(default: F-Zero Forever, with .exe on Windows)")
 p.add_argument("--music", choices=("bundled", "external"), default="bundled",
-               help="Include the approved CGP and Astra soundtracks, or retain MSU support without audio files")
+               help="Include the CGP and Astra Velocity soundtracks, or retain MSU support without audio files")
 p.add_argument("--profile", choices=("player", "developer"), default="player",
                help="Player bundles contain runtime files and credits; developer bundles also include source/reference material")
 p.add_argument("--packs", type=Path, required=True, help="Reviewed exported course packs; never copy arbitrary installed packs")
@@ -33,9 +47,16 @@ p.add_argument("--deluxe-mods", type=Path, default=ROOT / "captures/bs-deluxe/mo
                help="Imported Deluxe directory; its credits and provenance ship with the build")
 p.add_argument("--cgp-music", type=Path, default=ROOT / "music/cgp",
                help="Verified CGP soundtrack source (reuses existing imports)")
-p.add_argument("--astra-music", type=Path, default=ROOT / "music/astra-front",
-               help="Verified Astra soundtrack source (reuses existing imports)")
+p.add_argument("--astra-velocity-music", type=Path, default=ROOT / "music/astra-velocity",
+               help="Verified Astra Velocity P3 recordings")
 a = p.parse_args()
+platform = a.platform
+if platform != HOST_PLATFORM:
+    raise SystemExit(f"Package {platform} on {platform}: the staged course cache is produced by "
+                     "running this build's own FZeroInspectPacks")
+suffix = ".exe" if platform == "windows" else ""
+if a.exe is None:
+    a.exe = "F-Zero Forever" + suffix
 bundled_music = a.music == "bundled"
 developer = a.profile == "developer"
 # BS Deluxe ships in every download, and that is allowed: it is a ROM hack,
@@ -55,7 +76,7 @@ if not re.fullmatch(r"\d+\.\d+\.\d+", version):
     raise SystemExit("Invalid VERSION")
 if a.label and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", a.label):
     raise SystemExit("Invalid release label")
-if Path(a.exe).name != a.exe or not a.exe.lower().endswith(".exe"):
+if Path(a.exe).name != a.exe or (platform == "windows") != a.exe.lower().endswith(".exe"):
     raise SystemExit("Expected an executable filename")
 build, mingw = ROOT / a.build, Path(a.mingw)
 cache = {}
@@ -66,8 +87,8 @@ for line in (build / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
 dependency_roots = {"snesrecomp": Path(cache.get("SNESRECOMP_ROOT", ROOT / "snesrecomp")),
                     "recomp-ui": Path(cache.get("RECOMP_UI_ROOT", ROOT / "recomp-ui"))}
 exe = build / a.exe
-import_helpers = [build / filename for filename in (
-    'FZeroConvertContent.exe', 'FZeroExportCourses.exe', 'FZeroInspectPacks.exe')]
+import_helpers = [build / (filename + suffix) for filename in (
+    'FZeroConvertContent', 'FZeroExportCourses', 'FZeroInspectPacks')]
 for helper in import_helpers:
     if not helper.is_file():
         raise SystemExit(f'Missing Custom Content runtime helper: {helper}')
@@ -96,14 +117,20 @@ for source in Path(cache.get("FZERO_GEN_DIR", ROOT / "src/gen")).glob("*.c"):
     if "rtl_aot_node_denied(" in source.read_text(encoding="utf-8"):
         raise SystemExit("Regenerate without the AOT deny gate before packaging")
 flavor = "with-msu" if bundled_music else "without-msu"
-name = f"F-Zero-Forever-{release_version}-windows-x64-{flavor}"
+if platform == "macos":
+    machine = subprocess.check_output(["lipo", "-archs", str(exe)], text=True).split()
+    platform_tag = "macos-" + ("universal" if len(machine) > 1 else machine[0])
+else:
+    platform_tag = {"windows": "windows-x64", "linux": "linux-x86_64"}[platform]
+name = f"F-Zero-Forever-{release_version}-{platform_tag}-{flavor}"
 if developer:
     name += "-dev"
 stage = ROOT / a.output / name
 stage.mkdir(parents=True, exist_ok=False)
-shutil.copy2(exe, stage / "F-Zero Forever.exe")
-for helper in import_helpers:
-    shutil.copy2(helper, stage / helper.name)
+if platform != "linux":
+    shutil.copy2(exe, stage / ("F-Zero Forever" + suffix))
+    for helper in import_helpers:
+        shutil.copy2(helper, stage / helper.name)
 # Build trees can contain privately imported shaders; never redistribute them.
 shutil.copytree(build / "assets", stage / "assets", ignore=shutil.ignore_patterns(
     "shaders", "music", "track-packs", *([] if developer else ["README.md"])))
@@ -111,7 +138,7 @@ shutil.copytree(ROOT / "assets/shaders", stage / "assets/shaders")
 # Release inputs are explicit: never copy a user's installation or stale cache.
 pack_root = a.packs.resolve()
 expected_courses = {}
-for ident in ("astra-front","bower-league","cgp","max-league"):
+for ident in BUNDLED_PACK_IDS:
     source=pack_root/ident
     descriptor=json.loads((source/"pack.json").read_text(encoding="utf-8"))
     if descriptor["id"]!=ident: raise SystemExit("Pack identity mismatch")
@@ -119,14 +146,14 @@ for ident in ("astra-front","bower-league","cgp","max-league"):
     for course, digest in extraction["record_hashes"].items():
         expected_courses[f"{ident}/{course}"] = digest
     shutil.copytree(source,stage/"mods/packs"/ident,ignore=shutil.ignore_patterns(
-        ".cache","*.pcm","*.msu", *([] if developer else ["extraction.json"])))
+        ".cache","*.pcm","*.msu", *([] if developer else ["extraction.json", "import-validation.json"])))
 write_index(stage / "mods", [stage / "mods/packs" / ident for ident in
-                            ("astra-front", "bower-league", "cgp", "max-league")])
+                            BUNDLED_PACK_IDS])
 # Use the real loader in the clean staging installation. Its content-keyed
 # source extraction and compiled-course caches travel with the ZIP, avoiding
 # conversion on first launch while retaining ordinary edit invalidation.
 inspection = subprocess.check_output(
-    [str(build.resolve() / "FZeroInspectPacks.exe"), "mods/packs"], cwd=stage, text=True)
+    [str(build.resolve() / ("FZeroInspectPacks" + suffix)), "mods/packs"], cwd=stage, text=True)
 decoded_courses = dict(re.findall(r"^([^\s]+/[^\s]+) ([0-9a-f]{64})$", inspection, re.MULTILINE))
 if decoded_courses != expected_courses:
     raise SystemExit("Staged course records do not match reviewed extraction manifests")
@@ -145,11 +172,12 @@ music = a.cgp_music
 if bundled_music:
     music_manifest = verify_music(music)
     stage_course_music(music, stage / "mods/packs/cgp")
-    stage_astra_music(a.astra_music, stage / "mods/packs/astra-front")
+    stage_astra_velocity_music(a.astra_velocity_music, stage / "mods/packs/astra-velocity")
 (stage / "assets/music").mkdir(parents=True, exist_ok=True)
 if developer:
     shutil.copy2(ROOT / "assets/music/cgp.json", stage / "assets/music/cgp.json")
     shutil.copy2(ROOT / "assets/music/astra-front.json", stage / "assets/music/astra-front.json")
+    shutil.copy2(ROOT / "assets/music/astra-velocity.json", stage / "assets/music/astra-velocity.json")
     shutil.copy2(ROOT / "assets/music/README.md", stage / "assets/music/README.md")
     shutil.copy2(ROOT / "assets/music/CGP_ATTRIBUTION.md", stage / "assets/music/CGP_ATTRIBUTION.md")
 if bundled_music and music_manifest.get("attribution_review", {}).get("status") == "incomplete":
@@ -209,15 +237,37 @@ if developer:
     shutil.copy2(ROOT/"docs/PACK_FORMAT.md",stage/"docs/PACK_FORMAT.md")
 # MODS.md links to these instructions in player downloads too.
 (stage / "docs").mkdir(exist_ok=True)
-player_guides = ("PACK_FORMAT.md", "CGP_COURSE_CAPABILITIES.md", "CGP_SNES_MUSIC.md", "ASTRA_FRONT_IMPORT.md", "FUZEE_FORMAT.md", "DIAGNOSTIC_REPLAY.md", "NETPLAY.md", "LOCAL_CONTROLS_AND_MODS.md", "HD_MODE7.md")
+player_guides = ("PACK_FORMAT.md", "CGP_COURSE_CAPABILITIES.md", "CGP_SNES_MUSIC.md", "ASTRA_FRONT_IMPORT.md", "ASTRA_VELOCITY_IMPORT.md", "FUZEE_FORMAT.md", "DIAGNOSTIC_REPLAY.md", "NETPLAY.md", "LOCAL_CONTROLS_AND_MODS.md", "HD_MODE7.md")
 for filename in player_guides:
     shutil.copy2(ROOT / "docs" / filename, stage / "docs" / filename)
 shutil.copy2(ROOT / "mods/PARSE_MANIFEST.md", stage / "mods/PARSE_MANIFEST.md")
 shutil.copy2(ROOT / "assets/music/README.md", stage / "assets/music/README.md")
-shutil.copy2(ROOT / "tools/collect_diagnostics.ps1", stage / "Collect diagnostics.ps1")
-shutil.copy2(ROOT / "tools/collect_diagnostics.cmd", stage / "Collect diagnostics.cmd")
+if platform == "windows":
+    shutil.copy2(ROOT / "tools/collect_diagnostics.ps1", stage / "Collect diagnostics.ps1")
+    shutil.copy2(ROOT / "tools/collect_diagnostics.cmd", stage / "Collect diagnostics.cmd")
+    diagnostics_tool = "Collect diagnostics.cmd"
+else:
+    # .command opens in Terminal from Finder; Linux file managers run .sh.
+    diagnostics_tool = "Collect diagnostics.sh" if platform == "linux" else "Collect diagnostics.command"
+    shutil.copy2(ROOT / "tools/collect_diagnostics.sh", stage / diagnostics_tool)
+    os.chmod(stage / diagnostics_tool, 0o755)
+if platform == "macos":
+    launcher = stage / "F-Zero Forever.command"
+    launcher.write_text('#!/bin/sh\n# Finder launcher: runs the game from its own folder.\n'
+                        'cd "$(dirname "$0")" && exec "./F-Zero Forever" "$@"\n', encoding="utf-8")
+    os.chmod(launcher, 0o755)
+platform_title = {"windows": "Windows x64", "linux": "Linux x86_64",
+                  "macos": "macOS " + platform_tag.split("-", 1)[1]}[platform]
+run_instructions = {
+    "windows": "Extract the entire ZIP and run F-Zero Forever.exe. Select your own F-Zero (USA) ROM.\n",
+    "linux": "Extract the entire archive and run F-Zero Forever.AppImage. Select your own F-Zero (USA) ROM.\n"
+             "Keep the AppImage beside mods/ and assets/; settings, saves and caches are written in this folder.\n",
+    "macos": "Extract the entire ZIP and open F-Zero Forever.command, or run ./F-Zero\\ Forever in Terminal.\n"
+             "The build is not notarized: if macOS blocks it, run xattr -dr com.apple.quarantine on this folder.\n"
+             "Select your own F-Zero (USA) ROM. Settings, saves and caches are written in this folder.\n",
+}[platform]
 (stage/"README.txt").write_text(
-    f"F-Zero Forever {release_version} - Windows x64\n\n"
+    f"F-Zero Forever {release_version} - {platform_title}\n\n"
     "Local Multiplayer defaults on; choose VS MODE and select 2, 3 or 4 racers.\n"
     "CGP original-car rebalances default on; conflicting BS vehicles default off. Saved choices are respected.\n"
     "Assign inputs in Controls: gamepads are unique; keyboard seats may use separate or repeated bindings.\n"
@@ -229,11 +279,11 @@ shutil.copy2(ROOT / "tools/collect_diagnostics.cmd", stage / "Collect diagnostic
     "All peers need this build and matching enabled course packs. Online rewind is disabled.\n"
     "MSU-1 replacement music works in single-player, local VS and online VS; missing songs use SNES music.\n"
     "Music choices and recordings are local to each player; course catalogs must match.\n\n"
-    "For a bug report: quit the game, run Collect diagnostics.cmd, and send the ZIP it selects.\n"
+    f"For a bug report: quit the game, run {diagnostics_tool}, and send the archive it creates.\n"
     "Recent inputs and checkpoints are recorded automatically, including online rollback.\n"
-    "Nothing is uploaded automatically. The ZIP contains game memory, saves and diagnostic paths.\n"
+    "Nothing is uploaded automatically. The archive contains game memory, saves and diagnostic paths.\n"
     "See docs/DIAGNOSTIC_REPLAY.md and docs/NETPLAY.md.\n\n"
-    "Extract the entire ZIP and run F-Zero Forever.exe. Select your own F-Zero (USA) ROM.\n"
+    + run_instructions +
     "Custom Content > Import adds course ZIPs, FZEdit projects, IPS/BPS patches or supported ROM hacks.\n"
     "Some imports ask you to confirm pack/cup names and course assignments. No Python installation is needed.\n"
     "Import limits: custom vehicles, menus and unsupported game-wide code changes are excluded.\n"
@@ -241,7 +291,7 @@ shutil.copy2(ROOT / "tools/collect_diagnostics.cmd", stage / "Collect diagnostic
     "See MODS.md and mods/CONVERSION.md for details.\n\n"
     "Mods > Track Pack Loader defaults on and loads every folder/ZIP in mods/packs. Restart after installing packs.\n"
     "The original 15 courses remain available. Loader and BS Satellaview Tracks exclude each other.\n"
-    "The included CGP, Astra, Bower and MAX packs add 15 cups / 75 course versions.\n"
+    "The included CGP, Astra Velocity, Bower and MAX packs add 17 cups / 85 course versions.\n"
     "Vehicle packs, rules and screen override remain separate options. CGP preset enables the full experience.\n\n"
     "Required course mechanics load automatically with their pack and have no separate switches.\n"
     "Legend difficulty defaults on; performance diagnostics default off; MSU-1 defaults on with SNES fallback for missing songs. Saved choices are respected.\n\n"
@@ -250,11 +300,14 @@ shutil.copy2(ROOT / "tools/collect_diagnostics.cmd", stage / "Collect diagnostic
     "The folder contains recent inputs, game checkpoints, settings, records and crash evidence, never your ROM file.\n"
     "See MODS.md for details.\n\n"
     "Mods > Always show Records defaults on, making Records available before setting a time.\n\n"
+    "Records shows all enabled cars by default; X/Y on its overview filters by car.\n"
+    "Practice: L/R on the league screen chooses the ghost's car. Automatic prefers your current car.\n"
+    "Selecting another car's ghost preserves your saved recording; Save Ghost writes your new recording normally.\n\n"
     "Mods > Lap voice callouts is optional and requires your own boost-power and final-lap WAV files.\n"
     "Choose both recordings before enabling it. Boost-power timing offers Lap 2 only (once per race).\n"
     "The final-lap recording retains its separate timing.\n"
     "No callout recordings are included. See MODS.md.\n\n"
-    + ("CGP and Astra audio are included in their mods/packs/<pack>/music folders.\n" if bundled_music else "Audio is not included; you can add it to each pack's music folder.\n") +
+    + ("CGP and Astra Velocity recordings are included in their pack music folders.\n" if bundled_music else "Audio is not included; you can add it to each pack's music folder.\n") +
     "Course ZIPs contain editable projects; example.zip contains example.fzm and uses music/example.pcm.\n"
     "Bundled courses include a ready-to-use cache in mods/packs/.cache.\n"
     "Changed or newly added courses rebuild their cache automatically on launch.\n"
@@ -268,28 +321,48 @@ shutil.copy2(ROOT / "tools/collect_diagnostics.cmd", stage / "Collect diagnostic
     "Single-player: F7 save-state menu, R rewind. All modes: D/C left/right shoulder, Alt+Enter fullscreen.\n"
     "Credits are in CREDITS.txt and each pack; license notices are in licenses/.\n",encoding="utf-8")
 
-pending, seen = [stage / "F-Zero Forever.exe"] + [stage / p.name for p in import_helpers], set()
-system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
-while pending:
-    binary = pending.pop()
-    imports = subprocess.check_output([str(mingw / "bin/objdump.exe"), "-p", str(binary)], text=True)
-    for dll in re.findall(r"DLL Name:\s*(\S+)", imports):
-        key = dll.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        if key.startswith(("api-ms-", "ext-ms-")) or (system / dll).is_file():
-            continue
-        source = next((directory / dll for directory in (build, mingw / "bin")
-                       if (directory / dll).is_file()), None)
-        if source is None:
-            raise SystemExit(f"Unresolved runtime DLL: {dll}")
-        target = stage / dll
-        shutil.copy2(source, target)
-        pending.append(target)
-
 notices = stage / "licenses"
 notices.mkdir()
+
+
+def resolve_windows_dlls():
+    pending, seen = [stage / "F-Zero Forever.exe"] + [stage / p.name for p in import_helpers], set()
+    system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
+    while pending:
+        binary = pending.pop()
+        imports = subprocess.check_output([str(mingw / "bin/objdump.exe"), "-p", str(binary)], text=True)
+        for dll in re.findall(r"DLL Name:\s*(\S+)", imports):
+            key = dll.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if key.startswith(("api-ms-", "ext-ms-")) or (system / dll).is_file():
+                continue
+            source = next((directory / dll for directory in (build, mingw / "bin")
+                           if (directory / dll).is_file()), None)
+            if source is None:
+                raise SystemExit(f"Unresolved runtime DLL: {dll}")
+            target = stage / dll
+            shutil.copy2(source, target)
+            pending.append(target)
+    for package in ("gcc-libs", "libiconv", "libwinpthread", "winpthreads", "SDL3", "crt", "headers", "libxml2", "libpng", "rapidjson", "zlib", "zstd", "bzip2", "brotli", "openssl", "expat", "xz", "libb2"):
+        source = mingw / "share/licenses" / package
+        if source.is_dir():
+            shutil.copytree(source, notices / package)
+
+
+if platform == "windows":
+    resolve_windows_dlls()
+elif platform == "linux":
+    # The AppImage carries the game, its helpers and the reachable shared
+    # library closure; notices for those libraries land beside the others.
+    subprocess.run(["bash", str(ROOT / "tools/package_appimage.sh"), "--build", str(build),
+                    "--exe", a.exe, "--assets", str(stage / "assets"),
+                    "--notices", str(notices / "runtime"),
+                    "--output", str(stage / "F-Zero Forever.AppImage")], check=True)
+else:
+    subprocess.run([sys.executable, str(ROOT / "tools/bundle_macos_libs.py"), str(stage),
+                    "--build", str(build), "--notices", str(notices / "runtime")], check=True)
 shutil.copytree(helper_licenses, notices / 'content-importer')
 for notice in (ROOT / "licenses").glob("*.txt"):
     shutil.copy2(notice, notices / notice.name)
@@ -299,10 +372,6 @@ for label, source in {
     "imgui": dependency_roots["recomp-ui"] / "src/third_party/imgui/LICENSE.txt",
 }.items():
     shutil.copy2(source, notices / (label + ".txt"))
-for package in ("gcc-libs", "libiconv", "libwinpthread", "winpthreads", "SDL3", "crt", "headers", "libxml2", "libpng", "rapidjson", "zlib", "zstd", "bzip2", "brotli", "openssl", "expat", "xz", "libb2"):
-    source = mingw / "share/licenses" / package
-    if source.is_dir():
-        shutil.copytree(source, notices / package)
 
 # Preserve copyright and license records embedded in the bundled font files.
 for font in (stage / "assets/fonts").glob("*.ttf"):
@@ -314,11 +383,11 @@ for font in (stage / "assets/fonts").glob("*.ttf"):
             continue
         _, count, strings = struct.unpack_from(">HHH", data, offset)
         for j in range(count):
-            platform, _, _, name_id, length, location = struct.unpack_from(">6H", data, offset + 6 + 12*j)
+            name_platform, _, _, name_id, length, location = struct.unpack_from(">6H", data, offset + 6 + 12*j)
             if name_id not in (0, 7, 8, 9, 13, 14):
                 continue
             raw = data[offset + strings + location:offset + strings + location + length]
-            text = raw.decode("utf-16-be" if platform in (0, 3) else "mac_roman", errors="replace")
+            text = raw.decode("utf-16-be" if name_platform in (0, 3) else "mac_roman", errors="replace")
             if text not in records:
                 records.append(text)
     (notices / (font.stem + ".txt")).write_text("\n\n".join(records), encoding="utf-8")
@@ -333,14 +402,15 @@ for name, pin in pins.items():
     recorded = subprocess.check_output([git, "ls-tree", "HEAD", name], cwd=ROOT, text=True).split()
     if len(recorded) < 3 or recorded[2] != pin:
         raise SystemExit(f"Build dependency {name} does not match committed submodule pin")
-manifest = {"version": version, "label": a.label, "music": a.music,
+manifest = {"version": version, "label": a.label, "music": a.music, "platform": platform,
             "commit": commit, "dependencies": pins, "profile": a.profile,
             "course_cache": {"compiled_courses": len(compiled_courses),
                              "extracted_sources": len(extracted_sources)}, "files": {}}
 for path in sorted(stage.rglob("*")):
     if path.is_file():
         if not developer and (path.suffix.lower() in (".asm", ".cpp", ".cc", ".h", ".py")
-                              or (path.suffix.lower() == ".ps1" and path.name != "Collect diagnostics.ps1")
+                              or (path.suffix.lower() in (".ps1", ".sh") and path.name not in
+                                  ("Collect diagnostics.ps1", "Collect diagnostics.sh"))
                               or path.relative_to(stage).parts[0] == "patches"
                               or (path.relative_to(stage).parts[0] == "docs" and path.name not in player_guides)
                               or path.name in ("extraction.json", "SOURCE_INDEX.json")):
@@ -350,17 +420,40 @@ for path in sorted(stage.rglob("*")):
                 or path.name.lower().startswith("crt-geom")):
             raise SystemExit(f"Forbidden payload: {path}")
         if path.suffix.lower() in (".pcm", ".msu") and (
-                not bundled_music or path.parent not in (stage / "mods/packs/cgp/music", stage / "mods/packs/astra-front/music")):
+                not bundled_music or path.parent not in (stage / "mods/packs/cgp/music", stage / "mods/packs/astra-velocity/music")):
             raise SystemExit(f"Unapproved music payload: {path}")
         manifest["files"][path.relative_to(stage).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
 manifest_path = stage / "manifest.json" if developer else stage.parent / (stage.name + ".manifest.json")
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-archive = stage.parent / (stage.name + ".zip")
-with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-    for path in sorted(stage.rglob("*")):
-        if path.is_file():
-            z.write(path, path.relative_to(stage.parent))
+if platform == "linux":
+    # tar keeps the AppImage and the diagnostics script executable.
+    archive = stage.parent / (stage.name + ".tar.gz")
+    with tarfile.open(archive, "x:gz", compresslevel=9) as t:
+        for path in sorted(stage.rglob("*")):
+            if path.is_file():
+                info = t.gettarinfo(path, path.relative_to(stage.parent).as_posix())
+                info.uid = info.gid = 0
+                info.uname = info.gname = ""
+                info.mode = 0o755 if os.access(path, os.X_OK) else 0o644
+                with path.open("rb") as member:
+                    t.addfile(info, member)
+else:
+    archive = stage.parent / (stage.name + ".zip")
+    with zipfile.ZipFile(archive, "x", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for path in sorted(stage.rglob("*")):
+            if not path.is_file():
+                continue
+            if platform == "macos":
+                # Record Unix modes so Finder and unzip restore executables.
+                info = zipfile.ZipInfo.from_file(path, path.relative_to(stage.parent).as_posix())
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                mode = 0o755 if os.access(path, os.X_OK) else 0o644
+                info.external_attr = (0o100000 | mode) << 16
+                z.writestr(info, path.read_bytes(), compresslevel=9)
+            else:
+                z.write(path, path.relative_to(stage.parent))
 with archive.open("rb") as archive_file:
     digest = hashlib.file_digest(archive_file, "sha256").hexdigest()
-archive.with_suffix(".zip.sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")
+Path(str(archive) + ".sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")
 print(f"{archive}\nSHA256 {digest}\nSource {commit}")

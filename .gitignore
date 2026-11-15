@@ -111,3 +111,4 @@ ghidra/*
 /last_run_report.json
 /crash_report_*.json
 /crash_*.dmp
+/release-windows/

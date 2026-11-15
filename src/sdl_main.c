@@ -277,7 +277,7 @@ static bool fzero_gl_init(FzeroGlRenderer *glr, SDL_Window *window,
   glr->window = window;
   glr->context = SDL_GL_CreateContext(window);
   if (!glr->context) return false;
-  SDL_GL_SetSwapInterval(1);
+  SDL_GL_SetSwapInterval(FzeroPresentationSwapInterval(&g_video));
   ogl_LoadFunctions();
   if (!ogl_IsVersionGEQ(3, 3)) {
     fprintf(stderr, "[fzero-gl] OpenGL 3.3 is required for GLSL shaders\n");
@@ -1054,6 +1054,16 @@ static double monotonic_seconds(void) {
   return (double)SDL_GetPerformanceCounter() / (double)SDL_GetPerformanceFrequency();
 }
 
+static void set_fullscreen(SDL_Window *window, bool enabled) {
+  snesrecomp_sdl_set_fullscreen(window, enabled);
+#if SNESRECOMP_SDL3
+  /* SDL3 may defer the transition. Query sizes/refresh and start the pacing
+   * clock only after the window has reached its requested presentation mode. */
+  if (!SDL_SyncWindow(window))
+    fprintf(stderr, "[fzero-display] Fullscreen transition did not settle: %s\n", SDL_GetError());
+#endif
+}
+
 static double display_refresh(SDL_Window *window) {
 #if SNESRECOMP_SDL3
   const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
@@ -1062,6 +1072,31 @@ static double display_refresh(SDL_Window *window) {
   SDL_DisplayMode mode;
   return SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(window), &mode) == 0 ? mode.refresh_rate : 0;
 #endif
+}
+
+static void set_presentation_sync(bool use_gl, SDL_Renderer *renderer) {
+  /* SDL presentation already uses the host clock without blocking vsync. */
+  const int interval = use_gl ? FzeroPresentationSwapInterval(&g_video) : 0;
+  int effective = -99;
+  if (use_gl) {
+#if SNESRECOMP_SDL3
+    const bool ok = SDL_GL_SetSwapInterval(interval);
+#else
+    const bool ok = SDL_GL_SetSwapInterval(interval) == 0;
+#endif
+    if (!ok)
+      fprintf(stderr, "[fzero-display] Cannot set swap interval %d: %s\n", interval, SDL_GetError());
+#if SNESRECOMP_SDL3
+    SDL_GL_GetSwapInterval(&effective);
+#else
+    effective = SDL_GL_GetSwapInterval();
+#endif
+  } else {
+    snesrecomp_sdl_set_render_vsync(renderer, interval);
+    effective = snesrecomp_sdl_get_render_vsync(renderer);
+  }
+  fprintf(stderr, "[fzero-display] Swap interval requested=%d effective=%d\n", interval, effective);
+  FzeroDiagnosticsEvent("swap_interval", effective);
 }
 
 static int write_frame_bmp(const char *path, const uint8_t *pixels, int width,
@@ -2165,8 +2200,6 @@ static int run_game(int argc, char **argv) {
           (use_gl_renderer ? SDL_WINDOW_OPENGL : 0) |
           (getenv("FZERO_TEST_LOCAL_UI_HIDDEN")?SDL_WINDOW_HIDDEN:0));
   if (!window) Die("Unable to create the game window");
-  if (launcher_settings.fullscreen && !g_compare_mode7)
-    snesrecomp_sdl_set_fullscreen(window, true);
   FzeroGlRenderer gl_renderer;
   SDL_Renderer *renderer = NULL;
   SDL_Texture *texture = NULL;
@@ -2187,7 +2220,6 @@ static int run_game(int argc, char **argv) {
       window=snesrecomp_sdl_create_window(kWindowTitle,initial_width,initial_height,
           SDL_WINDOW_RESIZABLE | kHighDpiFlag | (getenv("FZERO_TEST_LOCAL_UI_HIDDEN")?SDL_WINDOW_HIDDEN:0));
       if(!window)Die("Unable to create the native game window");
-      if(launcher_settings.fullscreen)snesrecomp_sdl_set_fullscreen(window,true);
     }
     if (gl_ok && want_gpu) {
       gl_renderer.hd_gpu=SnesHdGpuCreate();
@@ -2227,6 +2259,12 @@ static int run_game(int argc, char **argv) {
                                       launcher_settings.linear_filter != 0);
     snesrecomp_sdl_set_texture_opaque(texture);
   }
+  /* Match Alt+Enter: initialize the renderer in a normal window, then enter
+   * fullscreen with that renderer already attached. Some drivers otherwise
+   * retain a different swap/presentation state until a later mode cycle. */
+  if (launcher_settings.fullscreen && !g_compare_mode7)
+    set_fullscreen(window, true);
+  set_presentation_sync(use_gl_renderer, renderer);
   if (texture_scale != requested_texture_scale) {
     char message[256];
     snprintf(message, sizeof(message),
@@ -2510,6 +2548,7 @@ static int run_game(int argc, char **argv) {
           }
           if (!FzeroVideoSave(&g_video, kVideoConfig)) fprintf(stderr, "[fzero] Unable to save video settings\n");
           next_display_check = 0;
+          set_presentation_sync(use_gl_renderer, renderer);
           char title[192];
           snprintf(title, sizeof(title), "F-Zero Forever - %s - %s%u FPS",
                    g_video.enhanced ? FzeroAspectName(g_video.aspect) : "4:3",
@@ -2553,9 +2592,12 @@ static int run_game(int argc, char **argv) {
           case SDLK_RETURN: {
             if (!(mod & KMOD_ALT)) break;
             Uint32 flags = (Uint32)SDL_GetWindowFlags(window);
-            snesrecomp_sdl_set_fullscreen(
+            set_fullscreen(
                 window,
                 (flags & SNESRECOMP_SDL_WINDOW_FULLSCREEN_DESKTOP) == 0);
+            next_display_check = 0;
+            set_presentation_sync(use_gl_renderer, renderer);
+            g_reset_presentation_clock = true;
             break;
           }
           default:
@@ -2923,6 +2965,10 @@ static int run_game(int argc, char **argv) {
     }
 
     if (benchmark || FzeroClockPresentationDue(&clock, now)) {
+      /* A synchronized swap may finish just after the next deadline. Advancing
+       * from that completion time skips another refresh, halving presentation
+       * on drivers that block here instead of in the desktop compositor. */
+      FzeroClockPresentationBegin(&clock, monotonic_seconds());
       uint64_t diagnostic_start = FzeroDiagnosticsBegin();
       /* The emergency portable grid path stays bounded. Successful GPU
        * camera packets use the requested detail, independently of this cap. */
@@ -2944,7 +2990,6 @@ static int run_game(int argc, char **argv) {
                                      FzeroFrameHeight());
       snes_rewind_note_framebuffer((const uint32_t *)pixels, logical_width,
                                    FzeroFrameHeight());
-      FzeroClockPresentationDone(&clock, monotonic_seconds());
       ++presentations;
     }
     if (running && !benchmark) {

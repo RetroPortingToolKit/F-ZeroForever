@@ -54,6 +54,9 @@ bool FzeroValidFps(unsigned fps);
 bool FzeroValidHdScale(unsigned scale);
 bool FzeroParseHdScale(const char *text, unsigned *scale);
 double FzeroPresentationHz(unsigned fps, double refresh);
+/* Auto follows vblank. Explicit rates use the host clock, including rates
+ * above the panel refresh; a second, blocking vsync limiter would cap them. */
+int FzeroPresentationSwapInterval(const FzeroVideoSettings *settings);
 FzeroViewport FzeroCalculateViewport(const FzeroVideoSettings *settings,
                                      int drawable_width, int drawable_height);
 FzeroRect FzeroDestination(FzeroViewport viewport, int width, int height);
@@ -72,6 +75,8 @@ void FzeroClockReset(FzeroClock *clock, double now, double presentation_hz);
 bool FzeroClockSimulationDue(const FzeroClock *clock, double now);
 void FzeroClockSimulationDone(FzeroClock *clock);
 bool FzeroClockPresentationDue(const FzeroClock *clock, double now);
-void FzeroClockPresentationDone(FzeroClock *clock, double now);
+/* Advance at submission, before drawing/swap can block until the next vblank.
+ * Only deadlines missed before starting this frame count as dropped frames. */
+void FzeroClockPresentationBegin(FzeroClock *clock, double now);
 double FzeroClockAlpha(const FzeroClock *clock, double now);
 double FzeroClockNextDeadline(const FzeroClock *clock);

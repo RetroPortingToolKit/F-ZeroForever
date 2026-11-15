@@ -1,4 +1,60 @@
-﻿# Changelog
+# Changelog
+
+## 2.0.0 - Astra Velocity, now on Linux
+
+- Release 0.20.0-rc.3 as 2.0.0. The Windows downloads are unchanged.
+- Add Linux x86_64 downloads: an AppImage plus the same bundled courses,
+  soundtracks and documents as the Windows ZIP, in one .tar.gz per edition.
+- Import custom content (ROM hacks, IPS/BPS patches, FZEdit projects) on
+  Linux and macOS, not only Windows.
+- Add build scripts for every platform: tools/build-windows.ps1,
+  tools/build-linux.sh and tools/build-macos.sh, sharing tools/build_release.py.
+
+## 0.20.0 - Astra Velocity (prerelease)
+
+- Bundle Worthy / MF9_05's Astra Velocity P1: twenty courses in Eclipse,
+  Oblivion, Vector and Apex, with authored artwork, order and SNES music.
+- Refresh the bundled course collection: four packs, 85 imported courses and
+  17 imported cups, alongside the original 15 courses.
+- Preserve Illusion's fall-down collision and wall behavior with normal
+  gravity, separately from CGP Rainbow Road's increased gravity.
+- Include editable course ZIPs through the existing bundled-pack pipeline.
+- Include twenty course-matched Astra Velocity P3 recordings in the MSU edition,
+  preserving their original audio and loop points. Missing recordings use SNES music.
+
+## 0.19.1 - Records and ghosts across cars
+
+- Show the fastest times from all enabled cars by default, with each row's
+  car portrait. Use X/Y on the Records overview to filter by car.
+- Race another car's saved Practice ghost. Automatic prefers the current
+  car's recording; L/R on the Practice league screen selects a specific car.
+- Preserve each car's own ghost while another recording is selected,
+  including across current-build save states. Saving a new ghost still
+  replaces the current car's recording through the native Save Ghost dialog.
+
+## 0.19.0 - Multiplayer rear warnings and FPS pacing
+
+- Show the original orange CHECK warning in each multiplayer view when a
+  rival approaches from behind. Each local or online racer gets their own
+  warning, which clears as the rival draws alongside.
+- Honor an explicit presentation FPS target without also blocking on the
+  display limiter. Automatic mode continues to follow the display.
+- Include the 0.18.2 fullscreen scheduling and repeated-course import fixes,
+  with adaptive Fit and existing player settings preserved.
+
+## 0.18.2 - Fullscreen pacing and repeated-course imports
+
+- Advance presentation scheduling before GPU swaps can block, preventing an
+  extra refresh from being skipped. Initialize the renderer before entering
+  saved fullscreen mode and resynchronize pacing after Alt+Enter.
+- Recognize the verified optional FZEdit MSU add-on separately from a ZIP's
+  game patch. Unknown or changed patches still require explicit selection.
+- Preserve repeated GP course references as independent race entries, with
+  their original resources, palette cycles, SPC themes and MSU track numbers.
+  F-Zero Gaiden converts as 30 race entries using 24 distinct resources, with
+  all eight supplied PCM recordings mapped. Donor code, vehicles and global
+  gameplay changes remain excluded; course labels use the existing review form.
+- Retain adaptive Fit defaults and all explicit saved display/mod choices.
 
 ## 0.18.1 - HD compatibility and original CGP horizon shading
 
