@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0 - Astra Velocity, now on Linux
+
+- Release 0.20.0-rc.3 as 2.0.0. The Windows downloads are unchanged.
+- Add Linux x86_64 downloads: an AppImage plus the same bundled courses,
+  soundtracks and documents as the Windows ZIP, in one .tar.gz per edition.
+- Import custom content (ROM hacks, IPS/BPS patches, FZEdit projects) on
+  Linux and macOS, not only Windows.
+- Add build scripts for every platform: tools/build-windows.ps1,
+  tools/build-linux.sh and tools/build-macos.sh, sharing tools/build_release.py.
+
 ## 0.20.0 - Astra Velocity (prerelease)
 
 - Bundle Worthy / MF9_05's Astra Velocity P1: twenty courses in Eclipse,
