@@ -38,7 +38,7 @@ done
   echo "package_appimage.sh: --build, --assets, --notices and --output are required" >&2; exit 2; }
 BUILD="$(cd "$BUILD" && pwd)"
 BIN="$BUILD/$EXE"
-file -b "$BIN" | grep -q "ELF.*executable" || { echo "no Linux ELF at $BIN" >&2; exit 1; }
+case "$(file -b "$BIN")" in *ELF*executable*) ;; *) echo "no Linux ELF at $BIN" >&2; exit 1;; esac
 for helper in $HELPERS $PYINSTALLER_HELPER; do
   [ -x "$BUILD/$helper" ] || { echo "missing helper executable $BUILD/$helper" >&2; exit 1; }
 done
@@ -139,9 +139,10 @@ if [ -d "$APPDIR/usr/lib" ]; then
   echo "  pruned $pruned unreachable libraries from usr/lib"
 fi
 for exe in "$APP_NAME" $HELPERS; do
-  if env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/$exe" | grep -q 'not found'; then
+  env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/$exe" > "$WORK/ldd.txt"
+  if grep -q 'not found' "$WORK/ldd.txt"; then
     echo "$exe has unresolved libraries without LD_LIBRARY_PATH" >&2
-    env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/$exe" | grep 'not found' >&2
+    grep 'not found' "$WORK/ldd.txt" >&2
     exit 1
   fi
 done
@@ -157,15 +158,21 @@ python3 "$REPO/tools/stage_linux_notices.py" "$APPDIR"
 # /usr/local) are covered by stage_linux_notices.py.
 mkdir -p "$NOTICES"
 cp "$APPDIR/usr/share/doc/fzerosnesrecomp/licenses/${SNESRECOMP_SDL_BACKEND:-SDL3}.txt" "$NOTICES/"
+# Read whole outputs from files: an early-exiting reader in a pipeline would
+# SIGPIPE the writer and, under pipefail, abort the script without a message.
+LDCACHE="$WORK/ldconfig.txt"
+env -u LD_LIBRARY_PATH ldconfig -p > "$LDCACHE"
 if [ -d "$APPDIR/usr/lib" ]; then
   for f in "$APPDIR"/usr/lib/*; do
     [ -e "$f" ] || continue
     lib="$(basename "$f")"
     case "$lib" in libSDL3.so*|libSDL2*.so*) continue;; esac
-    origin="$(env -u LD_LIBRARY_PATH ldconfig -p | awk -v l="$lib" '$1 == l { print $NF; exit }')"
+    origin="$(awk -v l="$lib" '$1 == l && !found { print $NF; found = 1 }' "$LDCACHE")"
     pkg=""
-    [ -n "$origin" ] && pkg="$(dpkg -S "$(readlink -f "$origin")" 2>/dev/null | head -n1 | cut -d: -f1)"
-    [ -z "$pkg" ] && [ -n "$origin" ] && pkg="$(dpkg -S "$origin" 2>/dev/null | head -n1 | cut -d: -f1)"
+    if [ -n "$origin" ]; then
+      pkg="$(dpkg -S "$(readlink -f "$origin")" 2>/dev/null | awk -F: 'NR == 1 { print $1 }' || true)"
+      [ -n "$pkg" ] || pkg="$(dpkg -S "$origin" 2>/dev/null | awk -F: 'NR == 1 { print $1 }' || true)"
+    fi
     copyright="/usr/share/doc/$pkg/copyright"
     [ -n "$pkg" ] && [ -f "$copyright" ] || {
       echo "no license notice found for bundled library $lib (${origin:-not in ldconfig})" >&2; exit 1; }
