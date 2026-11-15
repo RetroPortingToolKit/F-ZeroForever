@@ -256,6 +256,8 @@ if platform == "macos":
     launcher.write_text('#!/bin/sh\n# Finder launcher: runs the game from its own folder.\n'
                         'cd "$(dirname "$0")" && exec "./F-Zero Forever" "$@"\n', encoding="utf-8")
     os.chmod(launcher, 0o755)
+# collect_diagnostics.sh writes a ZIP when zip is installed, else a .tar.gz.
+report_noun, report_verb = ("ZIP", "selects") if platform == "windows" else ("archive", "creates")
 platform_title = {"windows": "Windows x64", "linux": "Linux x86_64",
                   "macos": "macOS " + platform_tag.split("-", 1)[1]}[platform]
 run_instructions = {
@@ -279,9 +281,9 @@ run_instructions = {
     "All peers need this build and matching enabled course packs. Online rewind is disabled.\n"
     "MSU-1 replacement music works in single-player, local VS and online VS; missing songs use SNES music.\n"
     "Music choices and recordings are local to each player; course catalogs must match.\n\n"
-    f"For a bug report: quit the game, run {diagnostics_tool}, and send the archive it creates.\n"
+    f"For a bug report: quit the game, run {diagnostics_tool}, and send the {report_noun} it {report_verb}.\n"
     "Recent inputs and checkpoints are recorded automatically, including online rollback.\n"
-    "Nothing is uploaded automatically. The archive contains game memory, saves and diagnostic paths.\n"
+    f"Nothing is uploaded automatically. The {report_noun} contains game memory, saves and diagnostic paths.\n"
     "See docs/DIAGNOSTIC_REPLAY.md and docs/NETPLAY.md.\n\n"
     + run_instructions +
     "Custom Content > Import adds course ZIPs, FZEdit projects, IPS/BPS patches or supported ROM hacks.\n"
