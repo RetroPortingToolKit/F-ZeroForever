@@ -88,11 +88,18 @@ EOF
 # The game binary is renamed to the product name inside the AppDir.
 STAGE_BIN="$WORK/$APP_NAME"
 cp "$BIN" "$STAGE_BIN"
-deploy_args=(--appdir "$APPDIR" --executable "$STAGE_BIN" --desktop-file "$DESKTOP" --icon-file "$ICON")
+deploy_args=(--appdir "$APPDIR" --executable "$STAGE_BIN")
 for helper in $HELPERS; do
   deploy_args+=(--executable "$BUILD/$helper")
 done
 $LINUXDEPLOY "${deploy_args[@]}"
+# Desktop integration is installed directly: linuxdeploy cannot resolve a
+# quoted Exec entry containing spaces, and the executable keeps its product name.
+install -D -m 0644 "$DESKTOP" "$APPDIR/usr/share/applications/fzerosnesrecomp.desktop"
+install -D -m 0644 "$ICON" "$APPDIR/usr/share/icons/hicolor/256x256/apps/fzerosnesrecomp.png"
+ln -sf usr/share/applications/fzerosnesrecomp.desktop "$APPDIR/fzerosnesrecomp.desktop"
+ln -sf usr/share/icons/hicolor/256x256/apps/fzerosnesrecomp.png "$APPDIR/fzerosnesrecomp.png"
+ln -sf fzerosnesrecomp.png "$APPDIR/.DirIcon"
 # PyInstaller appends its archive to the ELF; patchelf/strip would corrupt it,
 # and it carries its own libraries, so it is copied verbatim.
 install -m 0755 "$BUILD/$PYINSTALLER_HELPER" "$APPDIR/usr/bin/$PYINSTALLER_HELPER"
