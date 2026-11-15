@@ -383,11 +383,11 @@ for font in (stage / "assets/fonts").glob("*.ttf"):
             continue
         _, count, strings = struct.unpack_from(">HHH", data, offset)
         for j in range(count):
-            platform, _, _, name_id, length, location = struct.unpack_from(">6H", data, offset + 6 + 12*j)
+            name_platform, _, _, name_id, length, location = struct.unpack_from(">6H", data, offset + 6 + 12*j)
             if name_id not in (0, 7, 8, 9, 13, 14):
                 continue
             raw = data[offset + strings + location:offset + strings + location + length]
-            text = raw.decode("utf-16-be" if platform in (0, 3) else "mac_roman", errors="replace")
+            text = raw.decode("utf-16-be" if name_platform in (0, 3) else "mac_roman", errors="replace")
             if text not in records:
                 records.append(text)
     (notices / (font.stem + ".txt")).write_text("\n\n".join(records), encoding="utf-8")
