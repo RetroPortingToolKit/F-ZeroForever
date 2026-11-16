@@ -69,9 +69,10 @@ second display-refresh limiter, including in fullscreen. The simulation keeps
 its original speed. Rendering above a monitor's refresh rate does not make
 that monitor display more complete frames per second.
 
-CGP original-car rebalances default on for single-player; conflicting BS
-vehicles default off. Saved settings take precedence. Extra CGP vehicles remain
-a separate choice.
+CGP vehicles and original-car rebalances default on for single-player, giving
+fresh settings all twelve cars; conflicting BS vehicles default off. Saved
+settings take precedence. On an existing profile, enable **CGP vehicles** in
+Mods to add the eight extra cars. The two CGP options remain separate choices.
 
 Full-course rendering is always active in races, including 4:3 and all local
 views. It does not depend on widescreen. The renderer resolves beyond the

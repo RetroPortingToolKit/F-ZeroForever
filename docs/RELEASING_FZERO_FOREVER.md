@@ -29,29 +29,11 @@ Use the plain version without a `fzero-55-preview` label.
 
 ## Current release
 
-**0.19.1** displays records from all enabled cars by default, with per-row
-portraits and X/Y car filters. Practice can select another car's ghost with
-L/R on its league screen, while preserving the current car's saved recording.
-Native ghost saves and current-build borrowed save-state reloads are qualified
-for Dragon Bird and White Cat. Existing native saves need no conversion.
-
-The release retains **0.19.0**, which restores the native CHECK rear warning
-in each multiplayer view and uses the selected FPS target to pace presentation when it is set
-explicitly. Automatic mode still follows the display. This release includes
-the fullscreen scheduling and Gaiden-style repeated course import fixes from
-0.18.2. The affected AMD system still needs a fullscreen startup retest.
-Both editions retain the accepted HD quality work: reconstructed perspective,
-exact nearest presentation, GPU cameras for every local player, separate
-2x/4x/8x detail and Off/2-sample smoothing, and a records return-fade fix.
-Fresh defaults are adaptive Fit, 4x detail, smoothing off and automatic FPS;
-explicit saved settings remain unchanged. Four-seat controls, the player-count
-dropdown and user-supplied finish fanfare remain available.
-
-Both editions retain course sources, credits and freshly generated prebuilt
-caches. Only the with-MSU edition includes approved CGP/Astra recordings;
-neither includes personal callout WAVs. Shared engine `d1ace29a` and launcher
-`b13c876` are frozen to the accepted implementation. Release tracking:
-`beads-8wg.5.131` and `beads-8wg.5.132`; quality qualification: `beads-8wg.5.126`.
+**2.0.2** enables all twelve CGP cars for fresh single-player settings, alongside
+existing default original-car rebalances. Saved vehicle choices remain intact;
+existing profiles can enable **Mods > CGP vehicles**. Local and online VS retain
+all twelve cars. The release keeps 2.0.1's soundtrack importer, bundled courses,
+adaptive Fit and 4x HD defaults, and both Windows/Linux music editions.
 
 ## Preparing a release
 

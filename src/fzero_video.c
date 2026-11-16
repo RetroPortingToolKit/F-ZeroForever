@@ -11,14 +11,14 @@
 
 static const char *const aspect_names[] = {"4:3", "16:9", "21:9", "32:9", "Fit"};
 
-/* CGP car rebalances, local VS and GPU Mode 7 default on. Aspect follows
+/* CGP cars and rebalances, local VS and GPU Mode 7 default on. Aspect follows
  * the window, presentation rate follows the display. Hosts that need the
  * stock baseline (headless captures, tools) call FzeroVideoStock(). */
 void FzeroVideoDefaults(FzeroVideoSettings *s) {
   *s = (FzeroVideoSettings){.enhanced = true, .aspect = FZERO_ASPECT_FIT,
                             .fps = 0, .fps_enabled = true, .local_two_player = true, .local_players = 2,
                             .hd_mode7 = true, .hd_scale = 4, .hd_supersample = 1, .diagnostics = false, .crash_replay = true,
-                            .gameplay = {.enabled=FZERO_RULE_DEFAULT_MASK, .tuning=2, .boost=2, .exhaust=2, .stock_rebalance=15, .always_records=true}};
+                            .gameplay = {.enabled=FZERO_RULE_DEFAULT_MASK, .tuning=2, .boost=2, .exhaust=2, .vehicle_packs=7, .stock_rebalance=15, .always_records=true}};
 }
 
 void FzeroVideoStock(FzeroVideoSettings *s) {
@@ -207,9 +207,8 @@ bool FzeroVideoLoad(FzeroVideoSettings *s, const char *path) {
   if (!has_cars) s->bs_deluxe = legacy_bs;
   if (!has_tracks && has_legacy_bs) s->bs_tracks = legacy_bs;
   if (!has_fps_toggle) s->fps_enabled = s->enhanced; /* migrate combined checkpoint mod */
-  /* Old slot profiles cannot establish which ships the user intended. Retire
-   * those three choices without silently opting into new content. A saved
-   * conflict resolves to the explicitly preserved stock BS vehicle mode. */
+  /* Retired slot profiles cannot establish which ships the user intended.
+   * A saved conflict resolves to the explicitly preserved stock BS mode. */
   s->gameplay.enabled &= FZERO_RULE_SELECTABLE_MASK;
   if(s->bs_deluxe)s->gameplay.vehicle_packs=s->gameplay.stock_rebalance=0;
   /* Former partial car packs/rebalances opt into their complete groups,

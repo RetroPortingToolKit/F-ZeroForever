@@ -13,16 +13,16 @@
 
 static void viewport_tests(void) {
   FzeroVideoSettings settings;
-  FzeroVideoDefaults(&settings); /* Fit, Auto rate, CGP rebalances, local VS and Legend. */
+  FzeroVideoDefaults(&settings); /* Fit, Auto rate, CGP cars/rebalances, local VS and Legend. */
   CHECK(settings.enhanced && settings.aspect == FZERO_ASPECT_FIT && settings.fps == 0 &&
         settings.fps_enabled && !settings.bs_deluxe);
-  CHECK(settings.local_two_player && settings.gameplay.stock_rebalance==15);
+  CHECK(settings.local_two_player && settings.gameplay.vehicle_packs==7 && settings.gameplay.stock_rebalance==15);
   CHECK(settings.hd_mode7 && settings.hd_scale == 4 && !settings.diagnostics);
   CHECK(settings.crash_replay);
   CHECK(settings.gameplay.enabled == FZERO_RULE_DEFAULT_MASK);
   FzeroVideoStock(&settings);
   CHECK(!settings.enhanced && settings.aspect == FZERO_ASPECT_STOCK && !settings.fps_enabled && !settings.bs_deluxe);
-  CHECK(!settings.local_two_player && !settings.gameplay.stock_rebalance);
+  CHECK(!settings.local_two_player && !settings.gameplay.vehicle_packs && !settings.gameplay.stock_rebalance);
   FzeroViewport v = FzeroCalculateViewport(&settings, 5120, 1440);
   CHECK(!v.enhanced && v.width == 256 && v.extra == 0);
   settings.enhanced = true;
@@ -193,7 +193,7 @@ static void config_tests(void) {
     CHECK(FzeroVideoSave(&b,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini"));
     CHECK(a.bs_deluxe && !a.gameplay.vehicle_packs && !a.gameplay.stock_rebalance);
     f=fopen("test-video.ini","w");CHECK(f);fputs("BSVehicles=0\nCGPRules=7\n",f);fclose(f);
-    CHECK(FzeroVideoLoad(&a,"test-video.ini") && !a.gameplay.enabled && !a.gameplay.vehicle_packs && a.gameplay.stock_rebalance==15);
+    CHECK(FzeroVideoLoad(&a,"test-video.ini") && !a.gameplay.enabled && a.gameplay.vehicle_packs==7 && a.gameplay.stock_rebalance==15);
   /* A former smoothing opt-in is discarded without shifting MSU or any
    * unrelated option. Saving also clears stale bits from caller settings. */
   CHECK(FZERO_RULE_MSU==17 && FZERO_RULE_CREDITS==18);
@@ -235,10 +235,10 @@ static void config_tests(void) {
   CHECK(!FzeroVideoLoad(&a,"test-video.ini"));
   /* Explicit opt-outs survive saving, reloading and unrelated missing keys. */
   f=fopen("test-video.ini","w");CHECK(f);
-  fputs("LocalTwoPlayer=0\nCGPStockRebalance=0\n",f);fclose(f);
-  CHECK(FzeroVideoLoad(&a,"test-video.ini") && !a.local_two_player && !a.gameplay.stock_rebalance);
+  fputs("LocalTwoPlayer=0\nCGPCars=0\nCGPStockRebalance=0\n",f);fclose(f);
+  CHECK(FzeroVideoLoad(&a,"test-video.ini") && !a.local_two_player && !a.gameplay.vehicle_packs && !a.gameplay.stock_rebalance);
   CHECK(FzeroVideoSave(&a,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini"));
-  CHECK(!a.local_two_player && !a.gameplay.stock_rebalance && !a.bs_deluxe);
+  CHECK(!a.local_two_player && !a.gameplay.vehicle_packs && !a.gameplay.stock_rebalance && !a.bs_deluxe);
   CHECK(b.gameplay.always_records); /* Missing key defaults on, including old configs. */
   CHECK(b.crash_replay); /* Old performance Diagnostics=0 never disables crash capture. */
   b.crash_replay=false;

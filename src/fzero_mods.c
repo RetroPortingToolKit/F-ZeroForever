@@ -69,7 +69,7 @@ static unsigned visible_rule(unsigned index) {
 static const char *const vehicle_ids[]={"cgp-cars", "cgp-stock-rebalance"};
 static const char *const vehicle_names[]={"CGP vehicles", "CGP original-car rebalances"};
 static const char *const vehicle_descriptions[]={
-  "Enable all three CGP car groups together: eight additional ships plus the original four, for twelve identities. Keeps each group in its own selection column and Grand Prix rival set. New ships include their matching artwork, handling, boost and exhaust. Original-car rebalances remain separate. Disables stock BS vehicles.",
+  "Enabled by default. Enable all three CGP car groups together: eight additional ships plus the original four, for twelve identities. Keeps each group in its own selection column and Grand Prix rival set. New ships include their matching artwork, handling, boost and exhaust. Original-car rebalances remain separate. Disables stock BS vehicles.",
   "Enabled by default. Apply CGP's artwork, handling, energy boost and exhaust to all four original cars together: Blue Falcon, Golden Fox, Wild Goose and Fire Stingray. Works on any course; adds no duplicate ships. Independent of CGP vehicles. Disables stock BS vehicles."};
 static bool vehicle_enabled(unsigned i) {
   return i==0 ? video->gameplay.vehicle_packs!=0 : video->gameplay.stock_rebalance!=0;

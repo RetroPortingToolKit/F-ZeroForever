@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.2 - All twelve cars by default
+
+- Enable all eight extra CGP cars for fresh single-player settings, alongside
+  the original four and their existing default rebalances.
+- Preserve saved vehicle choices. On an existing profile, enable **CGP vehicles**
+  in Mods to use all twelve cars. Local and online VS keep their twelve-car roster.
+
 ## 2.0.1 - Import your own soundtrack
 
 - Import stock and expanded F-Zero / BS Deluxe MSU-1 music ZIPs, extracted

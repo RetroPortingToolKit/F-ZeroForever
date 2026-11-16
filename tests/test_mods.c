@@ -438,14 +438,16 @@ int main(int argc,char **argv) {
     CHECK(p->feature_get(NULL,i,&f));
     if(!strcmp(f.package_id,"cgp-stock-rebalance")) {CHECK(f.enabled);defaults_seen|=1;}
     if(!strcmp(f.package_id,"fzero-local-2p")) {CHECK(f.enabled);defaults_seen|=2;}
+    if(!strcmp(f.package_id,"cgp-cars")) {CHECK(f.enabled);defaults_seen|=4;}
   }
-  CHECK(defaults_seen==3 && !fresh.bs_deluxe && fresh.gameplay.stock_rebalance==15);
+  CHECK(defaults_seen==7 && !fresh.bs_deluxe && fresh.gameplay.vehicle_packs==7 && fresh.gameplay.stock_rebalance==15);
   CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini"));
-  CHECK(loaded.local_two_player && loaded.gameplay.stock_rebalance==15 && !loaded.bs_deluxe);
+  CHECK(loaded.local_two_player && loaded.gameplay.vehicle_packs==7 && loaded.gameplay.stock_rebalance==15 && !loaded.bs_deluxe);
   CHECK(p->feature_enable(NULL,"fzero-local-2p","local-2p",0));
   CHECK(p->feature_enable(NULL,"cgp-stock-rebalance","vehicles",0));
+  CHECK(p->feature_enable(NULL,"cgp-cars","vehicles",0));
   CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini"));
-  CHECK(!loaded.local_two_player && !loaded.gameplay.stock_rebalance);
+  CHECK(!loaded.local_two_player && !loaded.gameplay.vehicle_packs && !loaded.gameplay.stock_rebalance);
   const RecompLauncherCModProvider *net=FzeroNetplayMods(p);
   RecompLauncherCModPackage pkg;
   FzeroNetplayModsMode(true);

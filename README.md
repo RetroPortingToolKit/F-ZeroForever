@@ -34,6 +34,10 @@ We made sure to preserve every custom feature that was built for each GP, includ
 
 Choose from **twelve CGP machines**: eight additional vehicles and CGP versions of the original four, each with its authored artwork, handling, energy boosts, and exhaust. Explore separate vehicle packs and original-car rebalances, or enable the optional Satellaview machines!
 
+All twelve cars are enabled by default for fresh single-player settings. Existing
+profiles keep their saved choices; enable **Mods > CGP vehicles** to add the eight
+extra cars. Local and online VS always offer all twelve.
+
 <img src="docs/screenshots/16-CGP-Dragon-Bird.png" width="100%" alt="16 CGP Dragon Bird">
 
 *Dragon Bird · CGP roster*

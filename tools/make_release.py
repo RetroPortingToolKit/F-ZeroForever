@@ -271,7 +271,8 @@ run_instructions = {
 (stage/"README.txt").write_text(
     f"F-Zero Forever {release_version} - {platform_title}\n\n"
     "Local Multiplayer defaults on; choose VS MODE and select 2, 3 or 4 racers.\n"
-    "CGP original-car rebalances default on; conflicting BS vehicles default off. Saved choices are respected.\n"
+    "All twelve CGP cars and original-car rebalances default on; conflicting BS vehicles default off.\n"
+    "Saved choices are respected. Existing profiles: enable Mods > CGP vehicles to add the extra cars.\n"
     "Assign inputs in Controls: gamepads are unique; keyboard seats may use separate or repeated bindings.\n"
     "Two players use top/bottom views; three or four use a 2x2 grid. All local views use GPU HD where supported.\n"
     "Multiplayer never pauses. Start opens a live menu to continue, restart, change race or exit.\n"
