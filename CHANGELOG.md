@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0 - Import your own soundtrack
+
+- Import stock and expanded F-Zero / BS Deluxe MSU-1 music ZIPs, extracted
+  folders or existing `.msu` selections without renaming recordings or patching
+  a ROM. Review Standard or CGP numbering before installation.
+- Select installed soundtracks by name in Audio. Preserve explicit music and
+  menu/event settings, fall back to SNES music for missing recordings, and keep
+  original-course music available with Track Pack Loader off.
+- Accept custom-format music packs with explicit mappings for original and/or
+  custom courses. Preserve PCM samples and loop points, protect included packs,
+  and remove imported content without changing downloads, saves or records.
+- Explain supported stock/custom music formats in the importer, README and
+  player/pack guides.
+
 ## 2.0.0 - Astra Velocity, now on Linux
 
 - Release 0.20.0-rc.3 as 2.0.0. The Windows downloads are unchanged.

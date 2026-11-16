@@ -3,20 +3,22 @@
 #include "fzero_fzedit.h"
 extern "C" {
 #include "fzero_course_file.h"
+#include "fzero_menu_music.h"
+#include "fzero_soundtrack.h"
 #include "fzero_title.h"
 #include "fzero_tracks.h"
-#include "fzero_menu_music.h"
 #include "sha256.h"
 }
-#include <algorithm>
 #include "data_pack.h"
 #include "data_pack_io.hpp"
-#include <memory>
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
@@ -47,6 +49,7 @@ struct Pack {
   std::vector<FzeroCourse> decoded;
   std::vector<Title> titles;
   std::map<std::string, fs::path> menu_music;
+  std::map<std::pair<std::string, std::string>, fs::path> race_music;
   int order = 0;
 };
 struct Sound {
@@ -56,6 +59,7 @@ struct Sound {
 std::vector<Pack> packs;
 std::vector<Sound> sounds;
 std::string primary;
+std::string selected_soundtrack;
 std::string lower(std::string s) {
   std::transform(s.begin(), s.end(), s.begin(),
                  [](unsigned char c) { return char(std::tolower(c)); });
@@ -294,8 +298,40 @@ Pack parse(const fs::path &root, const SnesDataPack &entry, std::vector<Sound> &
       p.menu_music.emplace(cue, file);
     }
   }
+  if (d.HasMember("race_music")) {
+    auto &music = d["race_music"];
+    require(music.IsObject(), "race_music must be an object");
+    unsigned count = 0;
+    for (auto group = music.MemberBegin(); group != music.MemberEnd();
+         ++group) {
+      std::string target(group->name.GetString(),
+                         group->name.GetStringLength());
+      ident(target);
+      require(group->value.IsObject(),
+              "Each race_music pack must contain course IDs");
+      for (auto song = group->value.MemberBegin();
+           song != group->value.MemberEnd(); ++song) {
+        require(++count <= 4096, "Too many soundtrack mappings");
+        std::string course(song->name.GetString(),
+                           song->name.GetStringLength());
+        ident(course);
+        if (target == "retail" || target == "bs-deluxe") {
+          bool known = false;
+          for (unsigned n = 0; n < (target == "retail" ? 15u : 25u); ++n)
+            known |= course == FzeroSoundtrackCourseId(n);
+          require(known, "Unknown original course in race_music: " + course);
+        }
+        auto path = inside(root, string(group->value, course.c_str()));
+        require(lower(path.extension().string()) == ".pcm",
+                "Race music must be PCM");
+        p.race_music.emplace(std::make_pair(target, course), path);
+      }
+    }
+    require(!p.race_music.empty(), "race_music has no songs");
+  }
   if (!d.HasMember("courses")) {
-    require(!audio.empty() || !p.menu_music.empty(), "Pack has no courses or audio");
+    require(!audio.empty() || !p.menu_music.empty() || !p.race_music.empty(),
+            "Pack has no courses or audio");
     return p;
   }
   require(d["courses"].IsArray() && d["courses"].Size() <= CP_TRACKS,
@@ -450,6 +486,64 @@ Pack parse(const fs::path &root, const SnesDataPack &entry, std::vector<Sound> &
   return p;
 }
 } // namespace
+struct FzeroPreparedPack {
+  Pack pack;
+  std::vector<Sound> audio;
+};
+FzeroPreparedPack *FzeroPacksPrepareImport(const char *rootPath,
+                                           const CpPack *info,
+                                           const char *installedPath,
+                                           const char *cachePath) {
+  auto prepared = std::make_unique<FzeroPreparedPack>();
+  fs::path root(rootPath), installed(installedPath);
+  auto manifestText = read(root / "pack.json");
+  rapidjson::Document manifest;
+  manifest.Parse(manifestText.c_str());
+  require(!manifest.HasParseError() && manifest.IsObject() &&
+              manifest.HasMember("payload") && manifest["payload"].IsObject(),
+          "Cannot prepare installed pack metadata");
+  auto payload = read(inside(root, string(manifest["payload"], "file")));
+  SnesDataPack entry{info->id,
+                     info->name,
+                     rootPath,
+                     "fzero.course-index",
+                     reinterpret_cast<const uint8_t *>(payload.data()),
+                     payload.size()};
+  std::string primaryId;
+  prepared->pack =
+      parse(root, entry, prepared->audio, primaryId, fs::path(cachePath));
+  auto relocate = [&](fs::path &path) {
+    path = installed / path.lexically_relative(root);
+  };
+  for (auto &path : prepared->pack.courses)
+    relocate(path);
+  for (auto &title : prepared->pack.titles)
+    relocate(title.file);
+  for (auto &[cue, path] : prepared->pack.menu_music)
+    relocate(path);
+  for (auto &[key, path] : prepared->pack.race_music)
+    relocate(path);
+  for (auto &sound : prepared->audio)
+    relocate(sound.root);
+  prepared->pack.root = installed;
+  return prepared.release();
+}
+void FzeroPacksDiscardPrepared(FzeroPreparedPack *prepared) { delete prepared; }
+void FzeroPacksPublishPrepared(FzeroPreparedPack *prepared) {
+  if (!prepared)
+    return;
+  sounds.insert(sounds.end(), std::make_move_iterator(prepared->audio.begin()),
+                std::make_move_iterator(prepared->audio.end()));
+  packs.push_back(std::move(prepared->pack));
+}
+void FzeroPacksForgetImport(const char *id) {
+  if (!id)
+    return;
+  packs.erase(std::remove_if(
+                  packs.begin(), packs.end(),
+                  [&](const auto &pack) { return !strcmp(pack.info.id, id); }),
+              packs.end());
+}
 bool FzeroPacksValidateImport(const char *directory, const char *cache_directory, CpPack *info,
                              char *error, size_t cap) {
   try {
@@ -461,10 +555,11 @@ bool FzeroPacksValidateImport(const char *directory, const char *cache_directory
     };
     uint8_t base[32];
     cp_hash_parse("bf16c3c867c58e2ab061c70de9295b6930d63f29f81cc986f5ecae03e0ad18d2", base);
-    const char *caps[] = {"fzero-course-v1"};
+    const char *caps[] = {"fzero-course-v1", "fzero-soundtrack-v1"};
     std::unique_ptr<SnesDataPacks, decltype(&snes_data_packs_destroy)> shared(
         snes_data_packs_scan(directory, "f-zero", "fzero.course-index", base,
-                            caps, 1, report, &errors), snes_data_packs_destroy);
+                             caps, 2, report, &errors),
+        snes_data_packs_destroy);
     require(errors.empty(), errors);
     require(snes_data_packs_count(shared.get()) == 1, "Choose one course project or pack at a time.");
     auto cache = std::string(cache_directory);
@@ -494,10 +589,11 @@ void FzeroPacksDiscover(CpCatalog *cat, const char *directory) {
     };
     uint8_t base[32];
     cp_hash_parse("bf16c3c867c58e2ab061c70de9295b6930d63f29f81cc986f5ecae03e0ad18d2", base);
-    const char *caps[] = {"fzero-course-v1"};
+    const char *caps[] = {"fzero-course-v1", "fzero-soundtrack-v1"};
     std::unique_ptr<SnesDataPacks, decltype(&snes_data_packs_destroy)> shared(
-        snes_data_packs_scan(directory, "f-zero", "fzero.course-index", base, caps, 1,
-                             report, nullptr), snes_data_packs_destroy);
+        snes_data_packs_scan(directory, "f-zero", "fzero.course-index", base,
+                             caps, 2, report, nullptr),
+        snes_data_packs_destroy);
     auto cache = (fs::path(reinterpret_cast<const char8_t *>(directory)) / ".cache").string();
     for (size_t i = 0; i < snes_data_packs_count(shared.get()); ++i) {
       const auto *entry = snes_data_packs_get(shared.get(), i);
@@ -643,6 +739,10 @@ bool FzeroPacksResolveMusic(const char *source, unsigned track, char *out,
 bool FzeroPacksHasMusic(void) {
   try {
     for (auto &pack : packs)
+      for (auto &[key, path] : pack.race_music)
+        if (fs::is_regular_file(path))
+          return true;
+    for (auto &pack : packs)
       for (auto &[cue, path] : pack.menu_music)
         if (fs::is_regular_file(path)) return true;
     for (auto &pack : packs)
@@ -665,6 +765,69 @@ const char *FzeroPacksMenuMusicId(unsigned index) {
     if (!pack.menu_music.empty() && index-- == 0) return pack.info.id;
   return nullptr;
 }
+const char *FzeroPacksSoundtrackId(unsigned index) {
+  for (auto &pack : packs)
+    if ((!pack.race_music.empty() ||
+         (!pack.info.track_count && !pack.menu_music.empty())) &&
+        index-- == 0)
+      return pack.info.id;
+  return nullptr;
+}
+const char *FzeroPacksSoundtrackName(const char *id) {
+  if (!id)
+    return nullptr;
+  for (unsigned i = 0; const char *key = FzeroPacksSoundtrackId(i); ++i)
+    if (!strcmp(key, id))
+      for (auto &pack : packs)
+        if (!strcmp(pack.info.id, id))
+          return pack.info.name;
+  return nullptr;
+}
+const char *FzeroPacksSelectedSoundtrack(void) {
+  return selected_soundtrack.c_str();
+}
+void FzeroPacksRestoreSoundtrack(const char *id) {
+  if (!id || strlen(id) >= CP_ID ||
+      strspn(id, "abcdefghijklmnopqrstuvwxyz0123456789-_") != strlen(id))
+    return;
+  selected_soundtrack = id; // Preserve an explicitly selected absent pack.
+}
+bool FzeroPacksSelectSoundtrack(const char *id) {
+  if (!id || (*id && !FzeroPacksSoundtrackName(id)))
+    return false;
+  FzeroPacksRestoreSoundtrack(id);
+  return true;
+}
+bool FzeroPacksSoundtrackMusic(const char *soundtrack, const char *target,
+                               unsigned index, char *out, size_t cap) {
+  if (!soundtrack || !*soundtrack || !target || !out || !cap)
+    return false;
+  const char *course = nullptr;
+  if (!strcmp(target, "retail") || !strcmp(target, "bs-deluxe"))
+    course = FzeroSoundtrackCourseId(index);
+  else
+    for (auto &pack : packs)
+      if (!strcmp(pack.info.id, target) && index < pack.info.track_count)
+        course = pack.info.tracks[index].id;
+  if (!course)
+    return false;
+  for (auto &pack : packs) {
+    if (soundtrack != std::string(pack.info.id))
+      continue;
+    auto song = pack.race_music.find({target, course});
+    if (song == pack.race_music.end() && !strcmp(target, "bs-deluxe") &&
+        index < 15)
+      song = pack.race_music.find({"retail", course});
+    if (song == pack.race_music.end())
+      return false;
+    auto path = song->second.string();
+    if (path.size() >= cap)
+      return false;
+    strcpy(out, path.c_str());
+    return true;
+  }
+  return false;
+}
 const char *FzeroPacksMenuMusicName(const char *id) {
   if (!id) return nullptr;
   for (auto &pack : packs)
@@ -674,8 +837,10 @@ const char *FzeroPacksMenuMusicName(const char *id) {
 bool FzeroPacksMenuMusic(const char *id, const char *cue, char *out, size_t cap) {
   if (!id || !cue || !out || !cap) return false;
   out[0] = 0;
-  std::string wanted = *id ? id : primary;
-  if (!*id && !FzeroPacksMenuMusicName(wanted.c_str())) {
+  std::string wanted =
+      *id ? id : (selected_soundtrack.empty() ? primary : selected_soundtrack);
+  if (!*id && selected_soundtrack.empty() &&
+      !FzeroPacksMenuMusicName(wanted.c_str())) {
     const char *first = FzeroPacksMenuMusicId(0);
     wanted = first ? first : "";
   }

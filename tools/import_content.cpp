@@ -3,14 +3,19 @@
 #include <fstream>
 #include <iterator>
 int main(int argc, char **argv) {
-  if (argc < 3 || argc > 7) {
+  if (argc < 3 || argc > 8) {
     fprintf(stderr, "usage: FZeroImportContent source mods-directory [title] "
-                    "[stock-rom] [helpers-directory] [answers-json]\n");
+                    "[stock-rom] [helpers-directory] [answers-json] [music]\n");
     return 2;
   }
   try {
+    if (argc == 4 && std::string(argv[1]) == "--remove") {
+      auto id = FzeroContentRemove(argv[2], argv[3]);
+      printf("Removed %s\n", id.c_str());
+      return 0;
+    }
     std::string answers;
-    if (argc > 6) {
+    if (argc > 6 && std::string(argv[6]) != "-") {
       if (std::filesystem::file_size(argv[6]) > 256 * 1024)
         throw std::runtime_error("Import answers exceed the size limit.");
       std::ifstream input(argv[6], std::ios::binary);
@@ -20,7 +25,7 @@ int main(int argc, char **argv) {
     }
     auto r = FzeroContentImport(argv[1], argv[2], argc > 4 ? argv[4] : "",
                                 argc > 5 ? argv[5] : ".",
-                                argc > 3 ? argv[3] : "", answers);
+                                argc > 3 ? argv[3] : "", answers, argc > 7 && std::string(argv[7]) == "music");
     printf("Imported %s [%s], %u courses: %s\n", r.name.c_str(), r.id.c_str(),
            r.courses, r.installed.string().c_str());
     if (!r.warnings.empty())

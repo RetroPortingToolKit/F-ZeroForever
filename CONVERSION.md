@@ -7,6 +7,14 @@ the next time you press Play. For an unpacked editor export, choose its FZM
 file with its companions beside it, or ZIP the whole export. There is one
 Import button for all of these inputs. The list also shows installed mod files.
 
+**Music packs:** import a stock/expanded F-Zero / BS Deluxe MSU-1 ZIP, extracted
+folder or `.msu` file in **Settings > Audio**. Confirm the numbering and choose
+whether to use the soundtrack after import. No renaming, IPS patch or ROM
+modification is needed. Custom F-Zero Forever packs with `pack.json` may include
+course music or explicit mappings for original/custom courses and menu events;
+see [standalone soundtracks](docs/PACK_FORMAT.md#standalone-soundtracks).
+Soundtracks are selectable by name, and missing songs use SNES music.
+
 CGP, Astra Front, Astra Velocity, Bower and MAX are included packs. This page cannot remove or
 replace them. Huckmine belongs to CGP; it is not an additional default pack.
 
@@ -14,7 +22,7 @@ Patch conversion uses your selected original game ROM. You do not need Python
 or a command line. Known packs import directly. For a new supported FZEdit-based
 hack, the importer checks the courses, then opens **Review your courses**.
 Give the pack and its cups names, check the course assignments, and choose
-**Import courses**. Suggested cup names are editable labels, not claims about
+**Import**. Suggested cup names are editable labels, not claims about
 the original hack. Cancel leaves the installed collection unchanged.
 
 Course names and music choices are read from the source where possible. Cup

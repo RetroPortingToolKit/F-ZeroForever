@@ -95,9 +95,9 @@ class ImportTests(unittest.TestCase):
                                                        ('download/notes.pdf', 'documentation')]))
                 self.assertIn('conversion tools', result.stderr)
 
-    def test_music_only_zip_explains_mapping(self):
+    def test_music_only_zip_checks_recordings(self):
         result = self.run_import(self.archive([('hack-1.pcm', b'MSU1')]))
-        self.assertIn('music but no courses', result.stderr)
+        self.assertIn('Invalid PCM recording', result.stderr)
 
     def test_user_name_is_not_a_path(self):
         self.run_import(self.raw(), name='x\nunsafe')

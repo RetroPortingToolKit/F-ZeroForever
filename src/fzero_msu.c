@@ -38,7 +38,7 @@ static char selected_source[96], resolved_directory[1024];
 static bool selected_supported = true, selected_race, directory_loaded, directory_valid;
 typedef struct MsuRoute {
   char source[96],pack[96];unsigned index;
-  bool supported,race,course_music;
+  bool supported,race,course_music,soundtrack_music;
 } MsuRoute;
 static MsuRoute loaded_route;
 static const MsuRoute *restoring_route;
@@ -56,12 +56,30 @@ static bool resolve_track(void *context, const char *base, uint16_t track, char 
    * and individual selections exposed in Mods. */
   if(restoring_route) {
     loaded_route=*restoring_route;
+    if(loaded_route.soundtrack_music)
+      return FzeroPacksSoundtrackMusic(loaded_route.source,loaded_route.pack,loaded_route.index,path,cap);
     if(loaded_route.course_music)
       return FzeroPacksCourseMusic(loaded_route.pack,loaded_route.index,path,cap);
   } else {
     memset(&loaded_route,0,sizeof(loaded_route));
     snprintf(loaded_route.source,sizeof(loaded_route.source),"%s",selected_source);
     loaded_route.supported=selected_supported;loaded_route.race=selected_race;
+    if(selected_race) {
+      if(*FzeroPacksSelectedSoundtrack() && !FzeroPacksSoundtrackName(FzeroPacksSelectedSoundtrack())) return false;
+      char target[96]; unsigned index;
+      bool custom=FzeroTracksCurrentMusicKey(target,sizeof(target),&index);
+      if(!custom && track>=10 && track<35) {
+        snprintf(target,sizeof(target),"%s",FzeroBsTracks()?"bs-deluxe":"retail");
+        index=track-10;
+      }
+      if((custom || (track>=10 && track<35)) &&
+          FzeroPacksSoundtrackMusic(FzeroPacksSelectedSoundtrack(),target,index,path,cap)) {
+        loaded_route.soundtrack_music=true;loaded_route.index=index;
+        snprintf(loaded_route.pack,sizeof(loaded_route.pack),"%s",target);
+        snprintf(loaded_route.source,sizeof(loaded_route.source),"%s",FzeroPacksSelectedSoundtrack());
+        return true;
+      }
+    }
     if(selected_race && FzeroTracksCurrentMusic(path,cap)) {
       loaded_route.course_music=FzeroTracksCurrentMusicKey(loaded_route.pack,sizeof(loaded_route.pack),&loaded_route.index);
       return true;
@@ -355,14 +373,15 @@ void FzeroMsuSaveAudio(uint8_t out[FZERO_MSU_AUDIO_STATE_SIZE]) {
   snprintf((char *)out+224,96,"%s",loaded_route.pack);
   out[320]=(uint8_t)loaded_route.index;out[321]=(uint8_t)(loaded_route.index>>8);
   out[322]=(uint8_t)(selected_supported | selected_race<<1 | loaded_route.supported<<2 |
-      loaded_route.race<<3 | loaded_route.course_music<<4);
+      loaded_route.race<<3 | loaded_route.course_music<<4 | loaded_route.soundtrack_music<<5);
 }
 bool FzeroMsuAudioStateValid(const uint8_t state[FZERO_MSU_AUDIO_STATE_SIZE]) {
   if(neutral_audio(state))return true;
-  if(!msu1_playback_state_valid(state) || (state[322]&~31) ||
+  if(!msu1_playback_state_valid(state) || (state[322]&~63) ||
       !memchr(state+32,0,96) || !memchr(state+128,0,96) || !memchr(state+224,0,96))return false;
   for(unsigned i=323;i<FZERO_MSU_AUDIO_STATE_SIZE;++i)if(state[i])return false;
-  return !(state[322]&16) || ((state[322]&8) && state[224]);
+  return (!(state[322]&48) || ((state[322]&8) && state[224])) &&
+      (!(state[322]&32) || state[128]) && ((state[322]&48)!=48);
 }
 void FzeroMsuRestoreAudio(uint8_t *ram,const uint8_t state[FZERO_MSU_AUDIO_STATE_SIZE]) {
   if(RtlIsRollbackLoad())return; /* speculative replay never rewinds live audio */
@@ -372,6 +391,7 @@ void FzeroMsuRestoreAudio(uint8_t *ram,const uint8_t state[FZERO_MSU_AUDIO_STATE
   snprintf(route.pack,sizeof(route.pack),"%s",(const char *)state+224);
   route.index=state[320]|(unsigned)state[321]<<8;
   route.supported=(state[322]&4)!=0;route.race=(state[322]&8)!=0;route.course_music=(state[322]&16)!=0;
+  route.soundtrack_music=(state[322]&32)!=0;
   /* Reopen the actual saved course/namespace, including snapshots between
    * music selection and the guest's ready check. Restore the pending selector
    * afterwards. Only catalog identities travel in states, never audio paths. */

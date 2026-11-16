@@ -72,23 +72,29 @@ soundtrack (29 attribution-cleared recordings). In **Settings > Audio**, **MSU-1
 on **Installed pack music**, or select the CGP preset in Mods. Missing tracks and unrelated track packs use
 SNES music. Track selection works in both Grand Prix and Practice.
 
-The smaller without-msu download contains no soundtrack files. Its Audio
-settings let you browse for your own music folder. The CGP preset uses that
-custom music when configured, or SNES audio until you supply it. All courses,
-cars, gameplay options and other assets are identical between the two ZIPs.
+Both editions support **Import music pack...** and **Import music folder...**
+in **Settings > Audio**. Select a downloaded stock/expanded F-Zero or BS Deluxe
+MSU-1 ZIP, its extracted folder, or its `.msu` file. Confirm Standard or CGP
+numbering, the soundtrack name, and whether to use it now. A ZIP needs no
+`.msu` marker or IPS patch. The importer copies recordings without changing
+samples or loop points; you may delete the download after successful import.
 
-**Custom...** opens a picker for your pack's `.msu` file. Existing custom
-folder settings are retained. Standard packs require the supported
-**Conn/Cubear v11** `f-zero_msu1.ips` beside their numbered PCM files (available
-from the [authors' page](https://www.zeldix.net/t2768-bs-f-zero-deluxe-msu-1)).
-Keep the pack's original prefix and track numbering. Packs without this
-patch use CGP numbering. The v11 patch and third-party custom audio are not
-bundled. Unsupported patch versions are refused with an original-audio fallback.
+Custom F-Zero Forever packs use `pack.json`. Course packs can carry matching
+music, and music-only packs can explicitly map songs to original and/or custom
+courses and menu events. See [standalone soundtracks](PACK_FORMAT.md#standalone-soundtracks)
+for authoring examples. Arbitrary numbering requires those explicit mappings.
 
-Keep using your **unmodified USA ROM**. Adapters apply in memory, including
-all derived vehicle images; no ROM file is rewritten. Save states and rewind
-restart the selected song from its beginning rather than its exact playback
-position. Existing non-MSU record/save namespaces remain separate.
+Switch soundtracks by name in **Settings > Audio**. **Installed pack music**
+restores the usual course-pack choices. Other custom courses keep their own
+music. Missing mapped recordings use SNES audio. Menu/event selections in Mods
+remain respected. Import keeps the MSU-1 enable switch as selected unless you
+choose **Use now and enable MSU-1**. Remove imported packs
+in Custom Content; included content, downloads, saves and records are protected.
+
+Keep using your **unmodified USA ROM**. Import does not rewrite it. Original
+courses work with Track Pack Loader off. Music choices remain personal in
+online play; everyone does not need the same recordings. Current-build saves
+and rewind restore the song's playback position.
 
 For command-line use, `SNESRECOMP_MSU1` can select a `.msu` file, folder or
 filename prefix; `off` overrides a saved enabled setting. `FZERO_MSU1_PATCH`

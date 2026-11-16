@@ -30,7 +30,7 @@ if(NOT MSVC)
     target_compile_options(fzero_actor PRIVATE -Wall -Wextra -Werror)
     target_compile_options(fzero_camera PRIVATE -Wall -Wextra -Werror)
 endif()
-add_library(fzero_tracks STATIC src/fzero_tracks.c src/fzero_menu_music.c src/fzero_course.c src/fzero_course_file.c src/fzero_title.c src/fzero_music_sources.c src/fzero_packs.cpp src/fzero_fzedit.cpp src/fzero_content_import.cpp
+add_library(fzero_tracks STATIC src/fzero_tracks.c src/fzero_menu_music.c src/fzero_soundtrack.c src/fzero_course.c src/fzero_course_file.c src/fzero_title.c src/fzero_music_sources.c src/fzero_packs.cpp src/fzero_fzedit.cpp src/fzero_content_import.cpp
     "${SNESRECOMP_ROOT}/runner/src/content_pack.c"
     "${SNESRECOMP_ROOT}/runner/src/content_patch.c"
     "${SNESRECOMP_ROOT}/runner/src/sha256.c")
@@ -76,6 +76,9 @@ if(BUILD_TESTING)
     endif()
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME fzero_music_import COMMAND "${Python3_EXECUTABLE}" -X utf8
+            "${CMAKE_SOURCE_DIR}/tests/test_music_import.py"
+            --tool $<TARGET_FILE:FZeroImportContent>)
         add_test(NAME fzero_content_import COMMAND "${Python3_EXECUTABLE}" -X utf8
             "${CMAKE_SOURCE_DIR}/tests/test_content_import.py"
             --tool $<TARGET_FILE:FZeroImportContent>)

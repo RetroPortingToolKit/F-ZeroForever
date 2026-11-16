@@ -168,6 +168,7 @@ bool FzeroTracksInit(const char *root, bool deluxe_available) {
   title_enabled = false;
   FzeroTitleCatalogInit();
   FzeroMenuMusicInit();
+  FzeroPacksRestoreSoundtrack("");
   strcpy(title_style, "original");
   if (!root || !*root || strlen(root) >= sizeof(root_path) - 32)
     return fail("Pack settings path too long");
@@ -194,6 +195,8 @@ bool FzeroTracksInit(const char *root, bool deluxe_available) {
     while (fgets(line, sizeof(line), f)) {
       line[strcspn(line, "\r\n")] = 0;
       FzeroMenuMusicRead(line);
+      if (!strncmp(line, "soundtrack=", 11))
+        FzeroPacksRestoreSoundtrack(line + 11);
       if (!strcmp(line, "enabled=1"))
         loader_enabled = true;
       else if (!strcmp(line, "enabled=0"))
@@ -213,6 +216,7 @@ bool FzeroTracksInit(const char *root, bool deluxe_available) {
 bool FzeroTracksWriteSettings(FILE *f) {
   return fprintf(f, "enabled=%u\ntitle=%s\ntitle_enabled=%u\n",
                  loader_enabled, title_style, title_enabled) > 0 &&
+         fprintf(f, "soundtrack=%s\n", FzeroPacksSelectedSoundtrack()) >= 0 &&
          FzeroMenuMusicWrite(f);
 }
 bool FzeroTracksSave(void) {

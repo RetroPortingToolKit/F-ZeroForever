@@ -439,7 +439,7 @@ static int resource_set(void *ctx,const char *p,const char *f,const char *id,con
 static const RecompLauncherCModPreset presets[] = {
   {"vanilla", "Vanilla", "Original cars, rules, title and SNES music. Turns off Track Pack Loader and BS content. Personal settings stay as selected."},
   {"satellaview", "Satellaview", "Original cars plus the four BS cars and ten BS courses, with their stock behavior and SNES music. Turns off Track Pack Loader and CGP vehicles/rules. Personal settings stay as selected."},
-  {"cgp", "Community Grand Prix", "All installed course packs, all twelve CGP cars and their authored rebalances, every CGP rule including Legend, Community Grand Prix title and bundled music. Disables conflicting BS content; keeps unrelated choices."}
+  {"cgp", "Community Grand Prix", "All installed course packs, all twelve CGP cars and their authored rebalances, every CGP rule including Legend, Community Grand Prix title and MSU-1 music. Keeps your soundtrack choice and unrelated settings; disables conflicting BS content."}
 };
 static int preset_count(void *ctx) { (void)ctx; return 3; }
 static int preset_get(void *ctx, int i, RecompLauncherCModPreset *out) {

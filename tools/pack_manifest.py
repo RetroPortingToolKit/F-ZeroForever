@@ -23,4 +23,4 @@ def write_index(root, index):
     (root/'pack.json').write_bytes(shared.manifest_bytes(
         game='f-zero', ident=index['id'], title=index['name'], base_sha256=BASE_SHA256,
         payload_format='fzero.course-index', payload_name='courses.json', payload=payload,
-        requires=['fzero-course-v1']))
+        requires=['fzero-course-v1'] + (['fzero-soundtrack-v1'] if index.get('race_music') else [])))

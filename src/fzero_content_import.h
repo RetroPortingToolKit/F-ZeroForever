@@ -1,14 +1,21 @@
 #pragma once
 #include <filesystem>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
+struct FzeroPreparedPack;
 struct FzeroContentImportResult {
   std::string id, name;
   std::filesystem::path installed;
   unsigned courses = 0;
   bool plain_editor_project = false;
   std::string warnings;
+  bool music = false;
+  bool use_now = false;
+  bool enable_music = false;
+  std::string music_summary;
+  std::shared_ptr<FzeroPreparedPack> prepared;
 };
 // A usable donor needs the user's labels/grouping before publication.
 struct FzeroContentNeedsInput : std::runtime_error {
@@ -20,8 +27,11 @@ struct FzeroContentNeedsInput : std::runtime_error {
 // Staging writes this ownership index outside user pack manifests.
 bool FzeroContentIsBundled(const std::filesystem::path &mods,
                            const std::string &id);
+std::string FzeroContentRemove(const std::filesystem::path &mods,
+                               const std::string &entryId);
 // Throws a readable error. Never overwrites an existing pack or save file.
 FzeroContentImportResult FzeroContentImport(
     const std::filesystem::path &source, const std::filesystem::path &mods,
     const std::filesystem::path &stock, const std::filesystem::path &helpers,
-    const std::string &displayName, const std::string &answersJson = {});
+    const std::string &displayName, const std::string &answersJson = {},
+    bool musicOnly = false);
