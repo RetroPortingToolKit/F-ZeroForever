@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.1.0 - Import your own soundtrack
+## 2.0.1 - Import your own soundtrack
 
 - Import stock and expanded F-Zero / BS Deluxe MSU-1 music ZIPs, extracted
   folders or existing `.msu` selections without renaming recordings or patching
