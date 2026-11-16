@@ -84,6 +84,25 @@ Create courses in F-Zero Edit and import them to race, or install a drop-in pack
 
 *Import supported content and browse your installed packs.*
 
+**Bring your own soundtrack.** In **Settings > Audio**, choose **Import music
+pack...** and select a downloaded ZIP, or **Import music folder...** for an
+extracted pack. Stock F-Zero / BS Deluxe MSU-1 packs, including expanded packs
+with a different song per course, are supported. Confirm the pack's numbering,
+name and whether to use it now, then import. There is no need to rename PCM
+files, download a music patch or modify your ROM. The game keeps an installed
+copy, so you can delete the download afterward.
+
+The importer also accepts **custom F-Zero Forever packs** using our
+`pack.json` format: course packs can include matching music, and music-only
+packs can map songs to original and/or custom courses and menu events.
+Arbitrary numbering needs these explicit mappings. Choose installed soundtracks
+by name in **Settings > Audio**; **Installed pack music** restores the usual
+bundled/course-pack choices. Missing songs use SNES music. Explicit menu/event
+overrides in Mods are preserved. Imported music packs can be removed in
+**Custom Content** without deleting your download, saves or records.
+
+[Music pack format and examples](docs/PACK_FORMAT.md#standalone-soundtracks)
+
 **Already have a compatible pack?** Drop its folder or ZIP into `mods/packs` and restart. BS Satellaview Tracks and Track Pack Loader are mutually exclusive; vehicle options remain separate.
 
 [Installing packs →](mods/README.md) · [Creating and importing content →](docs/PACK_FORMAT.md) · [Supported mechanics and mods →](MODS.md)

@@ -63,6 +63,9 @@ int main(void) {
   remove("test-pack-discovery/b/pack.json");
   remove("test-pack-discovery/a/music/course.pcm");
   remove("test-pack-discovery/b/music/course.pcm");
+  remove("test-pack-discovery/c/pack.json");
+  remove("test-pack-discovery/c/courses.json");
+  remove("test-pack-discovery/c/song.pcm");
   remove("test-pack-discovery/a/music/menu.pcm");
   set_packs(root);
   FzeroCourse c = {0};
@@ -158,6 +161,39 @@ int main(void) {
   write_file("test-pack-discovery/b/music/course.pcm","MSU1\0\0\0\0",8);
   CHECK(FzeroPacksCourseMusic("scoped",0,music_b,sizeof(music_b)));
   CHECK(strcmp(music_a,music_b)); /* Same name stays scoped to its pack. */
+  /* Explicit audio-only mappings do not add duplicate courses or need the
+   * course loader. They share songs and preserve explicit menu choices. */
+  MKDIR("test-pack-discovery/c");
+  const char *audio_index = "{\"format\":1,\"id\":\"soundtrack\",\"name\":\"Friendly soundtrack\",\"author\":\"Test\","
+      "\"race_music\":{\"retail\":{\"knight-1\":\"song.pcm\",\"knight-2\":\"missing.pcm\"},"
+      "\"one\":{\"course\":\"song.pcm\"}},\"menu_music\":{\"title\":\"song.pcm\"}}";
+  write_pack("test-pack-discovery/c",audio_index,"soundtrack","Friendly soundtrack");
+  write_file("test-pack-discovery/c/song.pcm",pcm,sizeof(pcm));
+  CHECK(FzeroTracksSave() && FzeroTracksInit("test-pack-discovery/settings",true));
+  CHECK(!cp_catalog_find(FzeroTracksCatalog(),"soundtrack"));
+  CHECK(!strcmp(FzeroPacksSoundtrackId(0),"soundtrack"));
+  CHECK(!strcmp(FzeroPacksSoundtrackName("soundtrack"),"Friendly soundtrack"));
+  CHECK(FzeroPacksSelectSoundtrack("soundtrack"));
+  CHECK(FzeroPacksSoundtrackMusic("soundtrack","retail",0,music_b,sizeof(music_b)) && strstr(music_b,"song.pcm"));
+  CHECK(FzeroPacksSoundtrackMusic("soundtrack","bs-deluxe",0,music_b,sizeof(music_b)));
+  CHECK(FzeroPacksSoundtrackMusic("soundtrack","one",0,music_b,sizeof(music_b)));
+  CHECK(FzeroPacksSoundtrackMusic("soundtrack","retail",1,music_b,sizeof(music_b)) && !FzeroMenuMusicValid(music_b));
+  CHECK(!FzeroPacksSoundtrackMusic("soundtrack","retail",2,music_b,sizeof(music_b)));
+  CHECK(!FzeroPacksSelectSoundtrack("missing"));
+  CHECK(FzeroMenuMusicSetPack(""));
+  FzeroMenuMusicEnable(true);
+  CHECK(FzeroMenuMusicResolve(4,music_b,sizeof(music_b)) && strstr(music_b,"song.pcm"));
+  CHECK(FzeroMenuMusicSetPath(3,"test-pack-discovery/c/song.pcm"));
+  CHECK(FzeroPacksSelectSoundtrack(""));
+  CHECK(FzeroMenuMusicResolve(4,music_b,sizeof(music_b)));
+  CHECK(FzeroMenuMusicSetPath(3,""));
+  CHECK(FzeroPacksSelectSoundtrack("soundtrack"));
+  FzeroTrackLoaderEnable(false);
+  CHECK(FzeroTracksSave() && FzeroTracksInit("test-pack-discovery/settings",true));
+  CHECK(!FzeroTrackLoaderEnabled() && !strcmp(FzeroPacksSelectedSoundtrack(),"soundtrack"));
+  CHECK(FzeroPacksSoundtrackMusic(FzeroPacksSelectedSoundtrack(),"retail",0,music_b,sizeof(music_b)));
+  FzeroTrackLoaderEnable(true);
+  CHECK(FzeroPacksSelectSoundtrack("") && FzeroTracksSave());
   CHECK(!remove("test-pack-discovery/b/music/course.pcm"));
   CHECK(!FzeroPacksCourseMusic("scoped",0,music_b,sizeof(music_b)));
   const char *bad_module="{\"format\":2,\"id\":\"grip\",\"engine\":\"fzero-course-v1\",\"requires\":[]}";

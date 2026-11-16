@@ -12,6 +12,7 @@
 #include "fzero_hotkeys.h"
 #include "fzero_gamepad.h"
 #include "fzero_msu.h"
+#include "fzero_packs.h"
 #include "fzero_callouts.h"
 #include "fzero_replay.h"
 #include "fzero_state_mode.h"
@@ -757,6 +758,44 @@ static void save_launcher_settings(const RecompLauncherCSettings *settings) {
   launcher_ini_kv_write(g_config_path, "Rewind", "Interval", number);
 }
 
+static int soundtrack_count(void *ctx) {
+  (void)ctx;
+  int count = 0;
+  while (FzeroPacksSoundtrackId((unsigned)count)) ++count;
+  return count;
+}
+static int soundtrack_choice(void *ctx, int index, RecompLauncherCMusicChoice *out) {
+  (void)ctx;
+  const char *id = index < 0 ? NULL : FzeroPacksSoundtrackId((unsigned)index);
+  if (!id || !out) return 0;
+  memset(out, 0, sizeof(*out));
+  snprintf(out->id, sizeof(out->id), "%s", id);
+  snprintf(out->name, sizeof(out->name), "%s", FzeroPacksSoundtrackName(id));
+  return 1;
+}
+static const char *soundtrack_selected(void *ctx) { (void)ctx; return FzeroPacksSelectedSoundtrack(); }
+static int soundtrack_select(void *ctx, const char *id) {
+  (void)ctx;
+  return FzeroPacksSelectSoundtrack(id) && FzeroTracksSave();
+}
+static const RecompLauncherCMusicProvider soundtrack_provider = {
+  .choice_count = soundtrack_count, .choice_get = soundtrack_choice,
+  .selected = soundtrack_selected, .select = soundtrack_select,
+  .description = "Import stock/expanded MSU-1 ZIPs or custom F-Zero Forever packs. "
+      "Custom manifests can replace original and/or custom course music. "
+      "Other custom courses keep their pack music; missing songs use SNES music. "
+      "Menu music follows this choice unless overridden in Mods.",
+  .import_type_id = "music", .folder_type_id = "music-folder"
+};
+static int content_changed(void *ctx, const char *id, int action) {
+  RecompLauncherCSettings *settings = ctx;
+  char selected[96];
+  snprintf(selected, sizeof(selected), "%s", FzeroPacksSelectedSoundtrack());
+  if (action > 0 && !FzeroPacksSelectSoundtrack(id)) return 0;
+  if (action < 0 && !strcmp(selected, id)) FzeroPacksSelectSoundtrack("");
+  if (action == 2) settings->msu1_enabled = 1;
+  return FzeroTracksSave();
+}
 static int resolve_rom(const char *executable, const char *explicit_rom,
                        bool force_launcher, char *path, size_t path_size,
                        RecompLauncherCSettings *settings) {
@@ -808,6 +847,7 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
   game.has_shader = 1;
   game.msu1_supported = 1;
   game.msu1_managed = 1;
+  game.managed_music = &soundtrack_provider;
   game.msu1_note = "Music loads from each pack's music folder. Match the course filename: courses/huckmine.zip uses music/huckmine.pcm. Missing songs use the course's SNES soundtrack. Menu and event music is configured in Mods.";
   game.mods = FzeroModsProvider(&g_video, kVideoConfig, bundled_music);
   game.rom_cache_path = "rom.cfg";
@@ -868,6 +908,7 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
 
   fprintf(stderr, "[fzero-launcher] opening%s\n", force_launcher ? " (--launcher)" : "");
   game.custom_content = FzeroContentProvider("mods", assets_dir);
+  FzeroContentSetChangeCallback(content_changed, settings);
   int action =
       recomp_launcher_run_window("F-Zero Forever \xE2\x80\x94 Launcher", settings,
                                  &game, assets_dir, initial_rom, path,

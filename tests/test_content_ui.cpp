@@ -1,6 +1,7 @@
 // Host review lifecycle with the external converter boundary replaced by a
 // source-bound fixture. No ROM, graphics backend or installed packs required.
 #include "fzero_content_import.h"
+#include "fzero_packs.h"
 #include "fzero_content_ui.h"
 #include <chrono>
 #include <cstdio>
@@ -13,6 +14,11 @@
 namespace fs = std::filesystem;
 static fs::path report;
 static std::string submitted;
+static int notify(void *ctx, const char *id, int action) {
+  if (std::string(id) != "fixture" || action != 0) return 0;
+  ++*static_cast<int *>(ctx);
+  return 1;
+}
 static void check(bool ok, const char *message) {
   if (!ok)
     throw std::runtime_error(message);
@@ -20,11 +26,14 @@ static void check(bool ok, const char *message) {
 bool FzeroContentIsBundled(const fs::path &, const std::string &) {
   return false;
 }
+std::string FzeroContentRemove(const fs::path &, const std::string &) { return "fixture"; }
+void FzeroPacksPublishPrepared(FzeroPreparedPack *) {}
+void FzeroPacksForgetImport(const char *) {}
 FzeroContentImportResult FzeroContentImport(const fs::path &,
                                             const fs::path &mods,
                                             const fs::path &, const fs::path &,
                                             const std::string &,
-                                            const std::string &answers) {
+                                            const std::string &answers, bool) {
   if (answers.empty())
     throw FzeroContentNeedsInput("Review needed", report);
   submitted = answers;
@@ -81,7 +90,7 @@ int main() {
     out.close();
     auto mods = root / "mods";
     auto p = FzeroContentProvider(mods.string().c_str(), root.string().c_str());
-    check(p->type_count(p->ctx) == 1 && !p->open_folder, "Single import flow");
+    check(p->type_count(p->ctx) == 4 && !p->open_folder, "File/folder and music import paths");
     check(p->import_start(p->ctx, "file", "source.zip", "stock.sfc",
                           "My pack") != 0,
           "start");
@@ -106,6 +115,8 @@ int main() {
     check(wait(p).state == RECOMP_CONTENT_NEEDS_INPUT,
           "Invalid input leaves review editable");
     std::strcpy(values[5].value, "cup-2");
+    int notifications = 0;
+    FzeroContentSetChangeCallback(notify, &notifications);
     check(p->review_submit(p->ctx, values.data(), int(values.size())) != 0,
           "Submit corrected input");
     auto done = wait(p);
@@ -114,6 +125,7 @@ int main() {
           "Partial music success");
     check(FzeroContentShutdown() != 0,
           "Successful import refreshes game content");
+    check(notifications == 1, "Refresh runs once on the launcher thread, including shutdown");
     rapidjson::Document answers;
     answers.Parse(submitted.c_str());
     check(!answers.HasParseError() &&

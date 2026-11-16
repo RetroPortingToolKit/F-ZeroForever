@@ -2,6 +2,10 @@
 #include "data_pack.h"
 #include "data_pack_io.hpp"
 #include "fzero_packs.h"
+extern "C" {
+#include "fzero_menu_music.h"
+}
+#include "fzero_soundtrack.h"
 #include "sha256.h"
 #include <algorithm>
 #include <archive.h>
@@ -10,9 +14,11 @@
 #include <atomic>
 #include <chrono>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+#include <regex>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -110,10 +116,10 @@ struct Budget {
   }
 };
 struct ZipContents {
-  bool donor = false, editor = false;
+  bool donor = false, editor = false, audio = false;
 };
 ZipContents unzip(const fs::path &source, const fs::path &dest,
-                  bool inspectOnly = false) {
+                  bool inspectOnly = false, bool musicOnly = false) {
   std::unique_ptr<archive, decltype(&archive_read_free)> ar(archive_read_new(),
                                                             archive_read_free);
   archive_read_support_format_zip(ar.get());
@@ -154,9 +160,14 @@ ZipContents unzip(const fs::path &source, const fs::path &dest,
     auto ext = lower(rel.extension().string());
     contents.donor |= donorExtension(ext);
     contents.editor |= ext == ".fzm" || rel.filename() == "pack.json";
+    contents.audio |= ext == ".pcm";
     if (inspectOnly) {
       archive_read_data_skip(ar.get());
       continue;
+    }
+    if (musicOnly && (donorExtension(ext) || !allowed(rel))) {
+      archive_read_data_skip(ar.get());
+      continue; // Cover art, tools and emulator patches are not music assets.
     }
     need(allowed(rel), "Unsupported file in ZIP: " + rel.generic_string());
     fs::create_directories((dest / rel).parent_path());
@@ -545,6 +556,283 @@ void convert(const fs::path &source, const fs::path &stock,
     throw std::runtime_error(message);
   }
 }
+using MusicAnswers = std::map<std::string, std::string>;
+unsigned musicNumber(const std::map<unsigned, fs::path> &songs, bool standard,
+                     unsigned course) {
+  unsigned number = standard ? FzeroSoundtrackNumber(course) : 10 + course;
+  if (standard && !songs.count(number)) {
+    number = FzeroSoundtrackFallback(course);
+    if (!songs.count(number)) number = FzeroSoundtrackNative(course);
+  }
+  return number;
+}
+MusicAnswers reviewMusic(const fs::path &root, const fs::path &reports,
+                         const std::string &title, const std::string &identity,
+                         const std::vector<std::string> &groups,
+                         const std::string &answersJson,
+                         const std::string &coverage = "") {
+  if (!answersJson.empty()) {
+    rapidjson::Document answers;
+    answers.Parse(answersJson.c_str());
+    need(!answers.HasParseError() && answers.IsObject(),
+         "Invalid music import answers.");
+    validate_json(answers);
+    need(string(answers, "input_sha256") == identity &&
+             string(answers, "target_sha256") == identity,
+         "This music pack changed during review. Cancel and import it again.");
+    need(answers.HasMember("values") && answers["values"].IsObject(),
+         "Missing music choices.");
+    MusicAnswers values;
+    for (auto v = answers["values"].MemberBegin();
+         v != answers["values"].MemberEnd(); ++v)
+      values.emplace(v->name.GetString(),
+                     string(answers["values"], v->name.GetString()));
+    need(values.count("pack_name") && !values["pack_name"].empty() &&
+             values["pack_name"].size() < 96 &&
+             std::none_of(values["pack_name"].begin(),
+                          values["pack_name"].end(),
+                          [](unsigned char c) { return c < 32; }),
+         "Choose a soundtrack name shorter than 96 bytes.");
+    need(values["music_action"] == "use" ||
+             values["music_action"] == "enable" ||
+             values["music_action"] == "install",
+         "Choose whether to use this soundtrack after import.");
+    if (!groups.empty()) {
+      if (groups.size() == 1 && !values.count("music_set"))
+        values["music_set"] = groups.front();
+      need(std::find(groups.begin(), groups.end(), values["music_set"]) !=
+               groups.end(),
+           "Choose one of this download's music sets.");
+      need(values["music_layout"] == "standard" ||
+               values["music_layout"] == "cgp",
+           "Choose a supported music layout.");
+    }
+    return values;
+  }
+  rapidjson::Document review;
+  review.Parse(
+      R"({"target_sha256":"","input_sha256":"","review":{"description":"","fields":[]}})");
+  set(review, "target_sha256", identity);
+  set(review, "input_sha256", identity);
+  auto &a = review.GetAllocator();
+  std::string description =
+      groups.empty()
+          ? "Custom F-Zero Forever music pack. Its manifest selects the "
+            "original and/or custom courses and menu events it replaces."
+          : "Stock and expanded F-Zero MSU-1 packs are supported. Standard "
+            "numbering uses 14 for Mute City I and 6 for Big Blue; CGP "
+            "numbering uses 10 and 11. Custom F-Zero Forever packs use "
+            "pack.json with explicit course mappings. Choose the layout stated "
+            "by the pack author; filenames alone cannot prove it.";
+  description += " Recordings and loop points are preserved. Missing songs use "
+                 "SNES music. Your download stays unchanged.";
+  if (!coverage.empty())
+    description += "\n" + coverage;
+  review["review"]["description"].SetString(description.c_str(), a);
+  auto add =
+      [&](const char *id, const char *label, const std::string &value,
+          const std::vector<std::pair<std::string, std::string>> &options) {
+        rapidjson::Value field(rapidjson::kObjectType);
+        field.AddMember("id", rapidjson::Value(id, a), a);
+        field.AddMember("label", rapidjson::Value(label, a), a);
+        field.AddMember(
+            "type", rapidjson::Value(options.empty() ? "text" : "choice", a),
+            a);
+        field.AddMember("value", rapidjson::Value(value.c_str(), a), a);
+        if (!options.empty()) {
+          rapidjson::Value choices(rapidjson::kArrayType);
+          for (auto &[key, name] : options) {
+            rapidjson::Value choice(rapidjson::kObjectType);
+            choice.AddMember("value", rapidjson::Value(key.c_str(), a), a);
+            choice.AddMember("label", rapidjson::Value(name.c_str(), a), a);
+            choices.PushBack(choice, a);
+          }
+          field.AddMember("options", choices, a);
+        }
+        review["review"]["fields"].PushBack(field, a);
+      };
+  add("pack_name", "Soundtrack name",
+      title.empty() ? root.filename().string() : title, {});
+  if (!groups.empty()) {
+    std::vector<std::pair<std::string, std::string>> choices;
+    for (auto &group : groups)
+      choices.emplace_back(group,
+                           fs::path(group).lexically_normal().generic_string());
+    if (groups.size() > 1)
+      add("music_set", "Music set", groups.front(), choices);
+    add("music_layout", "Track numbering", "standard",
+        {{"standard", "Standard F-Zero / BS Deluxe"},
+         {"cgp", "CGP: original and BS courses"}});
+  }
+  add("music_action", "After import", "use",
+      {{"use", "Use now (keep MSU-1 setting)"},
+       {"enable", "Use now and enable MSU-1"},
+       {"install", "Install only"}});
+  fs::create_directories(reports);
+  writeJson(reports / "conversion-report.json", review);
+  throw FzeroContentNeedsInput("Review your soundtrack",
+                               reports / "conversion-report.json");
+}
+MusicAnswers wrapMusic(const fs::path &root, const fs::path &dest,
+                       const fs::path &reports, const std::string &title,
+                       const std::string &answersJson,
+                       const std::string &selectedPrefix) {
+  std::map<std::string, std::map<unsigned, fs::path>> sets;
+  std::string signature;
+  std::vector<fs::path> files;
+  for (auto &e : fs::recursive_directory_iterator(root))
+    if (e.is_regular_file() && lower(e.path().extension().string()) == ".pcm")
+      files.push_back(e.path());
+  std::sort(files.begin(), files.end());
+  need(!files.empty(),
+       "No MSU-1 PCM recordings were found. Choose a stock MSU-1 pack, or a "
+       "custom F-Zero Forever pack with pack.json.");
+  const std::regex numbered(R"(^(.+)-([0-9]{1,3})$)");
+  for (auto &file : files) {
+    need(FzeroMenuMusicValid(file.string().c_str()),
+         "Invalid PCM recording: " + file.filename().string() +
+             ". Check its MSU1 header, sample size and loop point.");
+    signature += fs::relative(file, root).generic_string() + "\n" +
+                 hash(read(file, maxFile)) + "\n";
+    std::smatch match;
+    auto stem = file.stem().string();
+    need(std::regex_match(stem, match, numbered),
+         "Unrecognized song filename: " + file.filename().string() +
+             ". Stock packs use prefix-number.pcm. Custom mappings need a "
+             "F-Zero Forever pack.json.");
+    auto number = unsigned(std::stoul(match[2].str()));
+    need(number > 0 && number <= 255, "MSU-1 song numbers must be 1 to 255.");
+    auto group = fs::relative(file.parent_path(), root).generic_string() + "/" +
+                 match[1].str();
+    need(group.size() < 96,
+         "A music set name is too long; move the pack into a shorter folder.");
+    need(sets[group].emplace(number, file).second,
+         "Repeated song number in one music set.");
+  }
+  std::vector<std::string> groups;
+  for (auto &[group, songs] : sets) {
+    (void)songs;
+    if (selectedPrefix.empty() ||
+        lower(group).ends_with("/" + lower(selectedPrefix)))
+      groups.push_back(group);
+  }
+  need(!groups.empty(), "No numbered PCM files match this .msu file. Keep its "
+                        "original filename beside its recordings.");
+  need(groups.size() <= 64, "This download contains too many music sets. "
+                            "Choose one extracted set folder.");
+  std::string coverage;
+  if (groups.size() == 1) {
+    const auto &songs = sets.at(groups.front());
+    for (bool standard : {true, false}) {
+      unsigned original = 0, bs = 0;
+      for (unsigned n = 0; n < 25; ++n)
+        if (songs.count(musicNumber(songs, standard, n))) {
+          if (n < 15)
+            ++original;
+          else
+            ++bs;
+        }
+      coverage += std::string(standard ? "Standard: " : " | CGP: ") +
+                  std::to_string(original) + "/15 original, " +
+                  std::to_string(bs) + "/10 BS courses.";
+    }
+  }
+  auto identity = hash(signature);
+  auto values = reviewMusic(root, reports, title, identity, groups, answersJson,
+                            coverage);
+  auto &songs = sets.at(values.at("music_set"));
+  fs::create_directories(dest / "music");
+  rapidjson::Document index;
+  index.Parse(
+      R"({"format":1,"id":"","name":"","author":"Imported soundtrack","race_music":{},"menu_music":{}})");
+  auto id =
+      "music-" + hash(identity + values["music_set"] + values["music_layout"])
+                     .substr(0, 24);
+  set(index, "id", id);
+  set(index, "name", values["pack_name"]);
+  auto &a = index.GetAllocator();
+  std::set<unsigned> used;
+  auto pathFor = [&](unsigned number) {
+    auto name = "music/track-" + std::to_string(number) + ".pcm";
+    if (used.insert(number).second) {
+      fs::rename(songs.at(number), dest / name);
+    }
+    return name;
+  };
+  for (const char *target : {"retail", "bs-deluxe"}) {
+    rapidjson::Value mappings(rapidjson::kObjectType);
+    for (unsigned n = 0; n < (std::string(target) == "retail" ? 15u : 25u);
+         ++n) {
+      unsigned number =
+          musicNumber(songs, values["music_layout"] == "standard", n);
+      if (songs.count(number)) {
+        auto path = pathFor(number);
+        mappings.AddMember(rapidjson::Value(FzeroSoundtrackCourseId(n), a),
+                           rapidjson::Value(path.c_str(), a), a);
+      } else {
+        auto path = "music/track-" + std::to_string(number) + ".pcm";
+        mappings.AddMember(rapidjson::Value(FzeroSoundtrackCourseId(n), a),
+                           rapidjson::Value(path.c_str(), a), a);
+      }
+    }
+    if (!mappings.ObjectEmpty())
+      index["race_music"].AddMember(rapidjson::Value(target, a), mappings, a);
+  }
+  for (auto &cue : FzeroMenuCues)
+    if (songs.count(cue.command)) {
+      auto path = pathFor(cue.command);
+      index["menu_music"].AddMember(rapidjson::Value(cue.id, a),
+                                    rapidjson::Value(path.c_str(), a), a);
+    }
+  need(!used.empty(), "No songs match this F-Zero layout. Custom numbering "
+                      "needs an author-provided F-Zero Forever pack.json.");
+  if (index["race_music"].ObjectEmpty())
+    index.RemoveMember("race_music");
+  writeJson(dest / "courses.json", index);
+  rapidjson::Document envelope;
+  envelope.Parse(
+      R"({"format":"snesrecomp.data-pack","version":1,"game":"f-zero","id":"","title":"","base_rom_sha256":"","requires":["fzero-course-v1"],"payload":{"format":"fzero.course-index","file":"courses.json","sha256":""}})");
+  set(envelope, "id", id);
+  set(envelope, "title", values["pack_name"]);
+  set(envelope, "base_rom_sha256", baseHash);
+  envelope["requires"].PushBack(
+      rapidjson::Value("fzero-soundtrack-v1", envelope.GetAllocator()),
+      envelope.GetAllocator());
+  auto digest = hash(read(dest / "courses.json"));
+  envelope["payload"]["sha256"].SetString(digest.c_str(),
+                                          envelope.GetAllocator());
+  writeJson(dest / "pack.json", envelope);
+  rapidjson::Document report;
+  report.Parse(R"({"warnings":[],"music_summary":""})");
+  unsigned original = 0, deluxe = 0, events = 0;
+  for (auto group = index["race_music"].MemberBegin();
+       group != index["race_music"].MemberEnd(); ++group)
+    for (auto song = group->value.MemberBegin();
+         song != group->value.MemberEnd(); ++song)
+      if (fs::is_regular_file(dest / song->value.GetString())) {
+        if (std::string(group->name.GetString()) == "retail")
+          ++original;
+        else
+          ++deluxe;
+      }
+  events = index["menu_music"].MemberCount();
+  set(report, "music_summary",
+      std::to_string(original) + "/15 original courses, " +
+          std::to_string(deluxe > original ? deluxe - original : 0) +
+          "/10 BS courses and " + std::to_string(events) +
+          "/6 menu/event songs ready. Missing songs use SNES music.");
+  if (used.size() < songs.size()) {
+    std::string warning =
+        std::to_string(songs.size() - used.size()) +
+        " recordings do not match the selected layout and were not installed. "
+        "Custom courses need explicit F-Zero Forever mappings.";
+    report["warnings"].PushBack(
+        rapidjson::Value(warning.c_str(), report.GetAllocator()),
+        report.GetAllocator());
+  }
+  writeJson(dest / "conversion-report.json", report);
+  return values;
+}
 struct Stage {
   fs::path path;
   explicit Stage(fs::path p) : path(std::move(p)) {
@@ -568,12 +856,37 @@ bool FzeroContentIsBundled(const fs::path &mods, const std::string &id) {
       return true;
   return false;
 }
-FzeroContentImportResult FzeroContentImport(const fs::path &input,
-                                            const fs::path &modsInput,
-                                            const fs::path &stockInput,
-                                            const fs::path &helpersInput,
-                                            const std::string &displayName,
-                                            const std::string &answersJson) {
+std::string FzeroContentRemove(const fs::path &modsInput,
+                               const std::string &entryId) {
+  auto relative = fs::path(reinterpret_cast<const char8_t *>(entryId.c_str()));
+  safeRelative(relative);
+  need(std::distance(relative.begin(), relative.end()) == 2 &&
+           *relative.begin() == "packs",
+       "Only installed packs can be removed here.");
+  auto mods = fs::canonical(modsInput), parent = mods / "packs",
+       path = parent / relative.filename();
+  need(!linked(mods) && !linked(parent) && !linked(path) &&
+           fs::canonical(path).parent_path() == parent,
+       "Linked or external content cannot be removed here.");
+  auto id = installedId(path);
+  need(!id.empty() && id != "retail" && id != "bs-deluxe" &&
+           !FzeroContentIsBundled(mods, id),
+       "Included content cannot be removed here.");
+  if (fs::is_directory(path))
+    for (auto &entry : fs::recursive_directory_iterator(path)) {
+      need(!linked(entry.path()) &&
+               lower(entry.path().filename().string()) != ".git",
+           "This folder contains linked files or a source checkout; nothing "
+           "was removed.");
+    }
+  fs::remove_all(path);
+  return id;
+}
+FzeroContentImportResult
+FzeroContentImport(const fs::path &input, const fs::path &modsInput,
+                   const fs::path &stockInput, const fs::path &helpersInput,
+                   const std::string &displayName,
+                   const std::string &answersJson, bool musicOnly) {
   need(displayName.size() < 96 &&
            std::none_of(displayName.begin(), displayName.end(),
                         [](unsigned char c) { return c < 32; }),
@@ -606,28 +919,33 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
   auto unpacked = stage.path / "unpacked";
   fs::create_directory(unpacked);
   auto extension = lower(source.extension().string());
+  if (extension == ".msu")
+    musicOnly = true;
   bool patch = donorExtension(extension);
   auto reports = mods / "import-reports" / key;
   if (patch) {
     convert(source, stock, helpers, unpacked / "converted", reports, answers);
   } else if (fs::is_directory(source))
     copyProject(source, unpacked);
-  else if (extension == ".fzm")
+  else if (extension == ".fzm" || extension == ".msu")
     copyProject(source.parent_path(), unpacked);
   else if (extension == ".zip") {
     // Identify the submission before extracting potentially large recordings.
     // The converter reads just the selected donor and validated assets; extra
     // documentation or tools in patch downloads are never run or installed.
     auto contents = unzip(source, {}, true);
-    if (contents.donor && !contents.editor)
+    if (contents.donor && !contents.editor && !musicOnly)
       convert(source, stock, helpers, unpacked / "converted", reports, answers);
     else
-      unzip(source, unpacked);
+      unzip(source, unpacked, false,
+            musicOnly ||
+                (contents.audio && !contents.donor && !contents.editor));
   } else
     throw std::runtime_error(
         "Choose a FZEdit project, ZIP, IPS/BPS patch, or SNES ROM hack.");
   std::vector<fs::path> manifests, projects, donors;
   bool audio = false;
+  MusicAnswers musicValues;
   for (auto &e : fs::recursive_directory_iterator(unpacked))
     if (e.is_regular_file()) {
       auto ext = lower(e.path().extension().string());
@@ -640,7 +958,7 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
       if (ext == ".pcm" || ext == ".msu")
         audio = true;
     }
-  if (manifests.empty() && projects.empty() && !donors.empty()) {
+  if (manifests.empty() && projects.empty() && !donors.empty() && !musicOnly) {
     need(extension == ".zip" || donors.size() == 1,
          "Choose one patch or ROM hack, or its ZIP download.");
     auto converted = stage.path / "converted";
@@ -656,6 +974,21 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
          "This ZIP contains several packs. Import each pack separately.");
     fs::rename(manifests.front().parent_path(), candidate);
     preflight(candidate);
+    if (musicOnly) {
+      auto envelope = json(candidate / "pack.json");
+      need(envelope.HasMember("payload") && envelope["payload"].IsObject(),
+           "Music pack has no payload metadata.");
+      auto payload =
+          json(inside(candidate, string(envelope["payload"], "file")));
+      need(!payload.HasMember("courses"),
+           "This is a course pack. Use Custom Content > Import to install its "
+           "courses and matching music together.");
+      // Folder imports may include emulator patches beside their audio.
+      for (auto &e : fs::recursive_directory_iterator(candidate))
+        if (e.is_regular_file() &&
+            donorExtension(lower(e.path().extension().string())))
+          fs::remove(e.path());
+    }
     // Verify original hashes before an optional display-name change.
     CpPack original{};
     char error[2048]{};
@@ -663,20 +996,55 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
                                           cache.path.string().c_str(),
                                           &original, error, sizeof(error));
     need(valid, error);
+    if (!original.track_count) {
+      auto envelope = json(candidate / "pack.json");
+      auto payload = inside(candidate, string(envelope["payload"], "file"));
+      auto index = json(payload);
+      if (!index.HasMember("race_music") && !index.HasMember("menu_music")) {
+        auto converted = catalog / "converted-music";
+        musicValues = wrapMusic(
+            candidate, converted, reports,
+            displayName.empty() ? original.name : displayName, answersJson,
+            extension == ".msu" ? source.stem().string() : "");
+        fs::remove_all(
+            candidate); // Only the private staged copy, never the download.
+        fs::rename(converted, candidate);
+      } else {
+        std::string identity = hash(read(payload));
+        for (auto &e : fs::recursive_directory_iterator(candidate))
+          if (e.is_regular_file() &&
+              lower(e.path().extension().string()) == ".pcm")
+            need(FzeroMenuMusicValid(e.path().string().c_str()),
+                 "A custom soundtrack contains an invalid PCM recording.");
+        musicValues =
+            reviewMusic(candidate, reports,
+                        displayName.empty() ? original.name : displayName,
+                        identity, {}, answersJson);
+      }
+      refreshManifest(candidate, musicValues["pack_name"]);
+    } else {
+      need(!musicOnly, "This is a course pack. Use Custom Content > Import to "
+                       "install its courses and matching music together.");
+    }
     refreshManifest(candidate, answersJson.empty() ? displayName : "");
   } else {
-    need(!projects.empty() || !audio,
-         "This ZIP contains music but no courses or patch. Add recordings to "
-         "the matching pack's music folder, using its course filenames. See "
-         "mods/CONVERSION.md for music mapping.");
-    need(projects.size() == 1,
-         "Choose a ZIP or folder with one FZEdit project, or a pack that "
-         "includes pack.json. Multiple projects need explicit league/order "
-         "metadata; see mods/CONVERSION.md.");
-    auto relative = fs::relative(projects.front(), unpacked);
-    fs::rename(unpacked, candidate);
-    wrapRaw(candidate, candidate / relative, displayName);
-    preflight(candidate);
+    if (projects.empty() && audio) {
+      musicValues = wrapMusic(
+          unpacked, candidate, reports,
+          displayName.empty() ? source.stem().string() : displayName,
+          answersJson, extension == ".msu" ? source.stem().string() : "");
+    } else {
+      need(!musicOnly, "Choose a stock MSU-1 music ZIP/.msu file, or a custom "
+                       "F-Zero Forever music pack containing pack.json.");
+      need(projects.size() == 1,
+           "Choose a ZIP or folder with one FZEdit project, or a pack that "
+           "includes pack.json. Multiple projects need explicit league/order "
+           "metadata; see mods/CONVERSION.md.");
+      auto relative = fs::relative(projects.front(), unpacked);
+      fs::rename(unpacked, candidate);
+      wrapRaw(candidate, candidate / relative, displayName);
+      preflight(candidate);
+    }
   }
   CpPack info{};
   char error[2048]{};
@@ -711,10 +1079,10 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
   // collisions.
   uint8_t base[32];
   cp_hash_parse(baseHash, base);
-  const char *caps[] = {"fzero-course-v1"};
+  const char *caps[] = {"fzero-course-v1", "fzero-soundtrack-v1"};
   std::unique_ptr<SnesDataPacks, decltype(&snes_data_packs_destroy)> existing(
       snes_data_packs_scan(installed.string().c_str(), "f-zero",
-                           "fzero.course-index", base, caps, 1, nullptr,
+                           "fzero.course-index", base, caps, 2, nullptr,
                            nullptr),
       snes_data_packs_destroy);
   need(snes_data_packs_count(existing.get()) < CP_PACKS - 2,
@@ -727,8 +1095,11 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
   need(!fs::exists(dest),
        "A folder already exists for this pack. Nothing was overwritten.");
   std::string warnings;
+  std::string musicSummary;
   if (fs::is_regular_file(candidate / "conversion-report.json")) {
     auto report = json(candidate / "conversion-report.json");
+    if (report.HasMember("music_summary"))
+      musicSummary = string(report, "music_summary");
     if (report.HasMember("warnings") && report["warnings"].IsArray())
       for (auto &warning : report["warnings"].GetArray())
         if (warning.IsString() && warnings.size() < 768) {
@@ -738,7 +1109,21 @@ FzeroContentImportResult FzeroContentImport(const fs::path &input,
               std::string(warning.GetString()).substr(0, 768 - warnings.size());
         }
   }
+  std::shared_ptr<FzeroPreparedPack> prepared(
+      FzeroPacksPrepareImport(candidate.string().c_str(), &info,
+                              dest.string().c_str(),
+                              cache.path.string().c_str()),
+      FzeroPacksDiscardPrepared);
   fs::rename(candidate, dest);
-  return {info.id,          info.name,         dest,
-          info.track_count, manifests.empty(), warnings};
+  return {info.id,
+          info.name,
+          dest,
+          info.track_count,
+          manifests.empty() && musicValues.empty(),
+          warnings,
+          !info.track_count,
+          musicValues["music_action"] != "install",
+          musicValues["music_action"] == "enable",
+          musicSummary,
+          std::move(prepared)};
 }

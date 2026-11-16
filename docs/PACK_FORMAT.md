@@ -247,6 +247,61 @@ recordings use the authored SNES music.
 This convention requires 0.4.0 or newer. The older 0.3.0 tester ZIPs still need
 their original prefixed recordings.
 
+## Standalone soundtracks
+
+Players can import a stock/expanded F-Zero or BS Deluxe MSU-1 ZIP directly in
+**Settings > Audio > Import music pack...**. Extracted folders and `.msu`
+selection are supported too; no IPS or `.msu` marker is required for a ZIP.
+The review asks for Standard or CGP numbering and which music set to use when
+a download contains several. Standard includes unique repeated-course songs
+when present and uses the supported repeated-theme fallback when absent.
+CGP numbering here covers the original/BS courses. Other custom numbering
+requires explicit mappings in the format below. The importer does not modify
+audio samples, loop points, the downloaded archive or the player's ROM.
+
+A custom F-Zero Forever soundtrack uses the same envelope and `courses.json`
+payload as a course pack. Omit `courses` and `cups` for a music-only pack.
+`race_music` maps stable **pack IDs**, then **course IDs**, to relative PCM paths:
+
+```json
+{
+  "format": 1,
+  "id": "my-soundtrack",
+  "name": "My Soundtrack",
+  "author": "Soundtrack Author",
+  "race_music": {
+    "retail": {"knight-1": "music/mute-city.pcm"},
+    "my-course-pack": {"coast": "music/coastal-run.pcm"}
+  },
+  "menu_music": {"title": "music/title.pcm", "ending": "music/victory.pcm"}
+}
+```
+
+Generate `pack.json` with `write_index` as above; IDs/names must match and its
+payload digest must be correct. `race_music` requires `fzero-soundtrack-v1`
+in the envelope's `requires`; `write_index` adds it automatically so older
+players diagnose the missing capability. Include the PCM files inside the pack. Course
+packs may also declare these mappings. Reusing one PCM for several courses
+does not require duplicate recordings. A soundtrack can be imported before
+its custom course pack is installed; unknown original-course IDs are rejected.
+
+Original course IDs are `knight-1` through `knight-5`, `queen-1` through
+`queen-5`, and `king-1` through `king-5`, in normal league order, under `retail`.
+`bs-deluxe` also accepts these and `bs-1-1` through `bs-1-5` and `bs-2-1`
+through `bs-2-5`. The first fifteen Deluxe courses inherit a `retail` mapping
+when the soundtrack has no explicit Deluxe mapping for that course.
+Custom course IDs come from their pack's `courses.json`; display names and
+filenames are not identities in `race_music`.
+
+Select the soundtrack in **Settings > Audio**. Only explicitly mapped courses
+are overridden; other custom courses keep their own `music/<source>.pcm`.
+A mapped song that is missing or unreadable uses SNES music. Imported numbered
+packs map every original/BS slot, including unavailable recordings, so a partial
+set falls back to SNES rather than another installed soundtrack. Menu events
+follow the selected soundtrack unless an explicit pack/file override exists
+in Mods. The selected soundtrack and overrides are remembered; music selection
+works with Track Pack Loader off and remains local during online play.
+
 ## Optional title artwork
 
 `titles` is an array of `{ "id": "my-project", "name": "My Project",
@@ -288,6 +343,8 @@ stored in `loader.cfg`; clearing a selection restores its pack value. An explici
 selection of a temporarily absent pack is preserved rather than silently switching
 soundtracks. With no explicit selection, the primary soundtrack pack supplies the
 defaults (CGP in the supplied installation), otherwise the first declared pack.
+When Audio has a selected standalone soundtrack, it supplies these defaults
+before the primary pack. An explicit menu pack or per-event file still wins.
 The first three cues play once; the others loop. These command assignments follow
 the [authors' MSU patch map](https://www.zeldix.net/t2768-bs-f-zero-deluxe-msu-1).
 

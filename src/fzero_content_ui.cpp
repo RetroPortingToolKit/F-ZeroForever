@@ -1,8 +1,10 @@
 #include "fzero_content_ui.h"
 #include "data_pack_io.hpp"
 #include "fzero_content_import.h"
+#include "fzero_packs.h"
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <rapidjson/stringbuffer.h>
@@ -16,6 +18,7 @@ struct Review {
   std::string source, stock, title, targetHash, inputHash, description;
   std::vector<RecompLauncherCCustomContentField> fields;
   std::vector<std::vector<RecompLauncherCCustomContentOption>> options;
+  bool music_only = false;
 };
 struct Context {
   std::mutex lock;
@@ -26,6 +29,12 @@ struct Context {
   bool changed = false;
   std::string error;
   Review review;
+  int (*on_change)(void *, const char *, int) = nullptr;
+  void *on_change_ctx = nullptr;
+  bool pending_change = false;
+  std::string pending_id;
+  int pending_action = 0;
+  std::shared_ptr<FzeroPreparedPack> pending_prepared;
   ~Context() {
     if (worker.joinable())
       worker.join();
@@ -120,6 +129,8 @@ void musicNotice(const fs::path &path,
     if (d.HasParseError() || !d.IsObject())
       return;
     snesrecomp::data_pack::validate_json(d);
+    if (d.HasMember("music_summary") && d["music_summary"].IsString())
+      copy(entry.description, d["music_summary"].GetString());
     if (!d.HasMember("audio_inventory") || !d["audio_inventory"].IsObject())
       return;
     auto &audio = d["audio_inventory"];
@@ -170,7 +181,20 @@ std::vector<RecompLauncherCCustomContentEntry> inventory(const fs::path &mods) {
                "Included with F-Zero Forever; cannot be removed here");
         } else {
           copy(e.kind, "Imported course pack");
+          e.removable = 1;
           musicNotice(path, e);
+          if (d.HasMember("payload") && d["payload"].IsObject()) {
+            auto envelope = snesrecomp::data_pack::string(d["payload"], "file");
+            auto text = snesrecomp::data_pack::read(
+                snesrecomp::data_pack::inside(path, envelope));
+            rapidjson::Document index;
+            index.Parse(text.c_str());
+            if (!index.HasParseError() && index.IsObject() &&
+                !index.HasMember("courses")) {
+              copy(e.kind, "Imported music pack");
+              copy(e.status, "Choose this soundtrack in Settings > Audio");
+            }
+          }
         }
       } catch (const std::exception &ex) {
         e.has_error = 1;
@@ -200,16 +224,25 @@ std::vector<RecompLauncherCCustomContentEntry> inventory(const fs::path &mods) {
             [](auto &a, auto &b) { return std::string(a.name) < b.name; });
   return rows;
 }
-int types(void *) { return 1; }
+int types(void *) { return 4; }
 int type(void *, int index, RecompLauncherCCustomContentType *out) {
-  if (!out || index != 0)
+  if (!out || index < 0 || index >= 4)
     return 0;
   *out = {};
-  copy(out->id, "file");
+  const bool music = index >= 2;
+  copy(out->id, index == 0   ? "file"
+                : index == 1 ? "folder"
+                : index == 2 ? "music"
+                             : "music-folder");
   copy(out->label, "Import");
   copy(out->description,
-       "ZIPs, FZEdit projects, IPS/BPS patches or supported ROM hacks.");
-  copy(out->file_patterns, "*.zip,*.ips,*.bps,*.fzm,*.sfc,*.smc,*.rom,*.fig");
+       "Stock/expanded MSU-1 music packs and custom F-Zero Forever packs are "
+       "supported. Courses also accept ZIPs, FZEdit projects, IPS/BPS patches "
+       "and supported ROM hacks.");
+  copy(out->file_patterns,
+       music ? "*.zip,*.msu"
+             : "*.zip,*.msu,*.ips,*.bps,*.fzm,*.sfc,*.smc,*.rom,*.fig");
+  out->directory = index == 1 || index == 3;
   copy(out->file_description, "F-Zero custom content");
   return 1;
 }
@@ -225,7 +258,8 @@ int entry(void *, int i, RecompLauncherCCustomContentEntry *out) {
   return 1;
 }
 int queueImport(const std::string &source, const std::string &stock,
-                const std::string &title, const std::string &answers = {}) {
+                const std::string &title, const std::string &answers = {},
+                bool musicOnly = false) {
   if (context.worker.joinable())
     context.worker.join();
   {
@@ -237,11 +271,11 @@ int queueImport(const std::string &source, const std::string &stock,
     copy(context.status.message, "Checking and importing your content...");
   }
   try {
-    context.worker = std::thread([source, stock, title, answers] {
+    context.worker = std::thread([source, stock, title, answers, musicOnly] {
       try {
         auto result = FzeroContentImport(fs::u8path(source), context.mods,
                                          fs::u8path(stock), context.helpers,
-                                         title, answers);
+                                         title, answers, musicOnly);
         std::vector<RecompLauncherCCustomContentEntry> rows;
         bool refreshed = true;
         try {
@@ -253,16 +287,35 @@ int queueImport(const std::string &source, const std::string &stock,
         if (refreshed)
           context.rows = std::move(rows);
         context.changed = true;
+        context.pending_change = true;
+        context.pending_id = result.id;
+        context.pending_prepared = std::move(result.prepared);
+        context.pending_action =
+            result.music && result.use_now ? (result.enable_music ? 2 : 1) : 0;
         context.review = {};
         context.status.state = RECOMP_CONTENT_SUCCEEDED;
         context.status.progress = 100;
-        copy(
-            context.status.message,
-            "Imported " + result.name + " (" + std::to_string(result.courses) +
-                (result.courses == 1 ? " course)." : " courses).") +
-                (result.warnings.empty() ? "" : " Some files need attention."));
+        copy(context.status.message,
+             result.music
+                 ? "Imported soundtrack: " + result.name +
+                       (result.warnings.empty()
+                            ? "."
+                            : ". Some songs need attention.")
+                 : "Imported " + result.name + " (" +
+                       std::to_string(result.courses) +
+                       (result.courses == 1 ? " course)." : " courses).") +
+                       (result.warnings.empty()
+                            ? ""
+                            : " Some files need attention."));
         std::string detail =
-            "Ready to play with Track Pack Loader enabled in Mods.";
+            result.music
+                ? "Choose your soundtrack in Settings > Audio. Supports mapped "
+                  "original and custom courses; other custom courses keep "
+                  "their pack music. Missing songs use SNES music. The MSU-1 "
+                  "switch stays as selected unless you chose to enable it."
+                : "Ready to play with Track Pack Loader enabled in Mods.";
+        if (!result.music_summary.empty())
+          detail = result.music_summary + "\n" + detail;
         if (!result.warnings.empty())
           detail += "\n" + result.warnings + "\nDetails: mods/packs/" +
                     result.id + "/conversion-report.json";
@@ -276,11 +329,12 @@ int queueImport(const std::string &source, const std::string &stock,
       } catch (const FzeroContentNeedsInput &e) {
         try {
           auto review = readReview(e.report, source, stock, title);
+          review.music_only = musicOnly;
           std::lock_guard guard(context.lock);
           context.review = std::move(review);
           context.status = {};
           context.status.state = RECOMP_CONTENT_NEEDS_INPUT;
-          copy(context.status.message, "Review your courses");
+          copy(context.status.message, e.what());
           copy(context.status.detail, context.review.description);
         } catch (const std::exception &error) {
           std::lock_guard guard(context.lock);
@@ -307,7 +361,7 @@ int queueImport(const std::string &source, const std::string &stock,
     return 0;
   }
 }
-int start(void *, const char *, const char *path, const char *image,
+int start(void *, const char *typeId, const char *path, const char *image,
           const char *name) {
   if (!path || !*path) {
     context.error = "Choose a content file first.";
@@ -322,11 +376,40 @@ int start(void *, const char *, const char *path, const char *image,
     }
     context.review = {};
   }
-  return queueImport(path, image ? image : "", name ? name : "");
+  const bool musicOnly =
+      typeId && (!strcmp(typeId, "music") || !strcmp(typeId, "music-folder"));
+  return queueImport(path, image ? image : "", name ? name : "", "", musicOnly);
 }
 int status(void *, RecompLauncherCCustomContentStatus *out) {
   if (!out)
     return 0;
+  {
+    std::string id;
+    std::shared_ptr<FzeroPreparedPack> prepared;
+    int action = 0;
+    bool pending = false;
+    {
+      std::lock_guard guard(context.lock);
+      pending = context.pending_change;
+      if (pending) {
+        id = context.pending_id;
+        action = context.pending_action;
+        prepared = std::move(context.pending_prepared);
+        context.pending_change = false;
+      }
+    }
+    if (pending && prepared)
+      FzeroPacksPublishPrepared(prepared.get());
+    if (pending && action < 0)
+      FzeroPacksForgetImport(id.c_str());
+    if (pending && context.on_change &&
+        !context.on_change(context.on_change_ctx, id.c_str(), action)) {
+      std::lock_guard guard(context.lock);
+      copy(context.status.detail,
+           "Content installed, but settings could not be refreshed. Reopen the "
+           "launcher before playing.");
+    }
+  }
   std::lock_guard guard(context.lock);
   *out = context.status;
   return 1;
@@ -439,7 +522,8 @@ int reviewSubmit(void *, const RecompLauncherCCustomContentValue *input,
       context.review =
           review; // Retain edits if conversion reports another issue.
     }
-    return queueImport(review.source, review.stock, "", buffer.GetString());
+    return queueImport(review.source, review.stock, "", buffer.GetString(),
+                       review.music_only);
   } catch (const std::exception &e) {
     context.error = e.what();
     return 0;
@@ -458,10 +542,53 @@ int reviewCancel(void *) {
   return 1;
 }
 const char *lastError(void *) { return context.error.c_str(); }
+int removeEntry(void *, const char *entryId) {
+  {
+    std::lock_guard guard(context.lock);
+    if (!entryId || context.status.state == RECOMP_CONTENT_BUSY ||
+        context.status.state == RECOMP_CONTENT_NEEDS_INPUT) {
+      context.error = "Finish or cancel the current import first.";
+      return 0;
+    }
+    context.status = {};
+    context.status.state = RECOMP_CONTENT_BUSY;
+    context.status.progress = -1;
+    copy(context.status.message, "Removing installed pack...");
+  }
+  if (context.worker.joinable())
+    context.worker.join();
+  const std::string id(entryId);
+  context.worker = std::thread([id] {
+    try {
+      auto removed = FzeroContentRemove(context.mods, id);
+      auto rows = inventory(context.mods);
+      std::lock_guard guard(context.lock);
+      context.rows = std::move(rows);
+      context.changed = context.pending_change = true;
+      context.pending_id = removed;
+      context.pending_action = -1;
+      context.status.state = RECOMP_CONTENT_SUCCEEDED;
+      context.status.progress = 100;
+      copy(context.status.message,
+           "Pack removed. Your download, saves and records were kept.");
+    } catch (const std::exception &e) {
+      std::lock_guard guard(context.lock);
+      context.status.state = RECOMP_CONTENT_FAILED;
+      copy(context.status.message, "This pack could not be removed.");
+      copy(context.status.detail, e.what());
+    }
+  });
+  return 1;
+}
 const RecompLauncherCCustomContentProvider provider = {
     nullptr,
-    "Add courses from a ZIP, FZEdit project, patch or supported ROM hack. Your "
-    "installed content appears below. Gameplay options remain in Mods.",
+    "Import stock/expanded MSU-1 music ZIPs or custom F-Zero Forever packs. "
+    "Custom packs use pack.json and may include courses with matching music, "
+    "or explicit music mappings for original/custom courses and menu events. "
+    "Course imports also accept FZEdit projects, patches and supported ROM "
+    "hacks. "
+    "Choose installed soundtracks in Settings > Audio; gameplay options remain "
+    "in Mods.",
     types,
     type,
     count,
@@ -474,7 +601,8 @@ const RecompLauncherCCustomContentProvider provider = {
     reviewField,
     reviewOption,
     reviewSubmit,
-    reviewCancel};
+    reviewCancel,
+    removeEntry};
 } // namespace
 const RecompLauncherCCustomContentProvider *
 FzeroContentProvider(const char *mods, const char *helpers) {
@@ -485,6 +613,10 @@ FzeroContentProvider(const char *mods, const char *helpers) {
   context.status = {};
   context.error.clear();
   context.review = {};
+  context.on_change = nullptr;
+  context.on_change_ctx = nullptr;
+  context.pending_change = false;
+  context.pending_prepared.reset();
   try {
     context.rows = inventory(context.mods);
   } catch (const std::exception &e) {
@@ -494,8 +626,17 @@ FzeroContentProvider(const char *mods, const char *helpers) {
   }
   return &provider;
 }
+void FzeroContentSetChangeCallback(int (*callback)(void *, const char *, int),
+                                   void *ctx) {
+  context.on_change = callback;
+  context.on_change_ctx = ctx;
+}
 int FzeroContentShutdown(void) {
   if (context.worker.joinable())
     context.worker.join();
+  RecompLauncherCCustomContentStatus ignored{};
+  status(nullptr, &ignored);
+  context.on_change = nullptr;
+  context.on_change_ctx = nullptr;
   return context.changed ? 1 : 0;
 }
