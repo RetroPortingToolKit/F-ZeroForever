@@ -24,7 +24,7 @@ android {
             abiFilters(*((project.findProperty('abis') ?: 'arm64-v8a,x86_64').split(',')))
             targets 'FZeroSNESRecomp'
         } }
-        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     externalNativeBuild { cmake { path '../../CMakeLists.txt'; version '3.22.1' } }
     sourceSets.main.java.srcDir '../external/SDL/android-project/app/src/main/java'
@@ -42,4 +42,8 @@ android {
         release { minifyEnabled false; signingConfig signingConfigs.release }
     }
     lint { abortOnError true }
+}
+dependencies {
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'junit:junit:4.13.2'
 }
