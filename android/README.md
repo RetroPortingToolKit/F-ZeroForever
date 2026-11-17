@@ -32,6 +32,8 @@ The Gradle wrapper is 8.7 with Android Gradle Plugin 8.6.1. Native libraries
 use 16 KiB ELF alignment. Dependencies are fetched from upstream archives
 and SHA-256-checked against `sources.json`; matching SDL Java glue is taken
 directly from that pinned source tree.
+The fetch step applies the upstream SDL2 branch's Android 13+ non-exported
+receiver handling to the pinned Java HID glue.
 
 Initialize the engine/UI submodules recursively. Generate the private stock
 and namespaced BS Deluxe native sources through the normal host pipelines.
@@ -61,3 +63,6 @@ one linker, and scripts impose no total-run timeout.
 The standalone `android/tools/test_game_files.java` exercises ROM integrity,
 header stripping, atomic replacement, archive containment, fresh defaults and
 saved-choice preservation using the JDK and optional private test ROM.
+`TouchSmokeTest` also injects two simultaneous fingers and checks the inputs
+recorded after the native game's filtering, including release of both buttons.
+It uses an isolated installed test profile with recording enabled.

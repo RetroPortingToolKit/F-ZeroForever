@@ -25,7 +25,8 @@ def main():
     if not (root/'app/src/main/assets/content.zip').is_file():
         parser.error('Stage approved player content with android/tools/stage_content.py')
     wrapper=root/('gradlew.bat' if os.name=='nt' else 'gradlew')
-    subprocess.run([str(wrapper),'-p',str(root),'assembleDebug' if args.debug else 'assembleRelease',
+    tasks=['assembleDebug'] if args.debug else ['assembleRelease','lintRelease']
+    subprocess.run([str(wrapper),'-p',str(root),*tasks,
                     '-Pabis='+args.abis,'--max-workers=2','--console=plain'],env=env,check=True)
 
 if __name__=='__main__':main()

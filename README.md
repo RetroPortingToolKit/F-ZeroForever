@@ -8,6 +8,17 @@
 
 Our team consists of veteran developers from the RetroPortingToolkit team, and F-Zero modders from the F-Zero Community Grand Prix team. For this special game, we spent over 7 weeks working on new features, daily.
 
+## Android
+
+Install the signed APK from the [Android and Linux release](https://github.com/RetroPortingToolKit/F-ZeroForever/releases/tag/v2.1.0),
+then choose your own unmodified F-Zero (USA) `.sfc` or `.smc` ROM. No ROM is included.
+
+The Android launcher has native Home, Settings and Mods pages, touch controls
+and standard gamepad support. **Fit to screen** and adaptive widescreen default
+on, with saved choices retained. Android Back opens pause, quick save/load and
+return to launcher. Portable HD rendering is optional and defaults off on
+Android. See [Android features and building](android/README.md).
+
 ## F-Zero Forever includes:
 
 ## 85 races. 17 cups.
