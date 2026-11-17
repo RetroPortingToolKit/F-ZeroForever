@@ -3,10 +3,16 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" FZERO_VERSION LIMIT_COUNT 1)
 project(FZeroSNESRecomp VERSION ${FZERO_VERSION} LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
-find_package(LibXml2 REQUIRED)
-find_package(PNG REQUIRED)
-find_library(GIF_LIBRARY NAMES gif REQUIRED)
-find_path(RAPIDJSON_INCLUDE_DIR rapidjson/document.h REQUIRED)
+if(ANDROID)
+    include(android/dependencies.cmake)
+    set(SNESRECOMP_SDL_BACKEND SDL2 CACHE STRING "" FORCE)
+    set(SNESRECOMP_HD_GPU OFF CACHE BOOL "" FORCE)
+else()
+    find_package(LibXml2 REQUIRED)
+    find_package(PNG REQUIRED)
+    find_library(GIF_LIBRARY NAMES gif REQUIRED)
+    find_path(RAPIDJSON_INCLUDE_DIR rapidjson/document.h REQUIRED)
+endif()
 
 include(CTest)
 set(SNESRECOMP_ROOT "${CMAKE_SOURCE_DIR}/snesrecomp" CACHE PATH "Framework checkout")
@@ -139,12 +145,16 @@ set(RECOMP_UI_ROOT "${CMAKE_SOURCE_DIR}/recomp-ui" CACHE PATH
 set(SNESRECOMP_SDL_BACKEND "SDL3" CACHE STRING
     "Desktop SDL backend (SDL3 or SDL2)")
 set(RECOMP_UI_ENABLE_MODS ON CACHE BOOL "F-Zero built-in native presentation mod" FORCE)
-set(SNESRECOMP_NET_ICE ON CACHE BOOL "Shared online transport" FORCE)
+if(NOT ANDROID)
+    set(SNESRECOMP_NET_ICE ON CACHE BOOL "Shared online transport" FORCE)
+endif()
 include(${SNESRECOMP_ROOT}/runner/runner.cmake)
 include(${SNESRECOMP_ROOT}/runner/render_workers.cmake)
 include(${SNESRECOMP_ROOT}/runner/hd_gpu.cmake)
 include(${RECOMP_UI_ROOT}/recomp_ui.cmake)
-find_package(OpenGL REQUIRED)
+if(NOT ANDROID)
+    find_package(OpenGL REQUIRED)
+endif()
 add_library(fzero_callouts STATIC src/fzero_callouts.c)
 target_include_directories(fzero_callouts PUBLIC "${CMAKE_SOURCE_DIR}/src" PRIVATE ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
 snesrecomp_target_sdl(fzero_callouts)
@@ -269,7 +279,7 @@ target_link_libraries(FZeroSNESRecompHeadless PRIVATE fzero_actor)
 # The desktop host takes the REAL host_report.c (always-on breadcrumb ring,
 # crash minidump writer, build-version stamp) and the REAL keybinds.c, so the
 # launcher's Controls page and the game read the same keybinds.ini.
-add_executable(FZeroSNESRecomp
+set(FZERO_HOST_SOURCES
     ${SNESRECOMP_RUNNER_SOURCES}
     "${SNESRECOMP_ROOT}/runner/src/diagnostics/trace_writer.c"
     "${SNESRECOMP_ROOT}/runner/src/diagnostics/replay_writer.c"
@@ -292,6 +302,15 @@ add_executable(FZeroSNESRecomp
     src/fzero_netplay_mods.c
     src/fzero_runtime.c)
 
+if(ANDROID)
+    add_library(FZeroSNESRecomp SHARED ${FZERO_HOST_SOURCES} android/native.c)
+    set_target_properties(FZeroSNESRecomp PROPERTIES OUTPUT_NAME main)
+    target_link_libraries(FZeroSNESRecomp PRIVATE log android GLESv2 EGL)
+    target_link_options(FZeroSNESRecomp PRIVATE "-Wl,-z,max-page-size=16384")
+else()
+    add_executable(FZeroSNESRecomp ${FZERO_HOST_SOURCES})
+endif()
+
 # Defaults scoped to this game target: the shared stores and launcher retain
 # C/V and F8 for other games. F-Zero does not use the generic R renderer hotkey.
 target_compile_definitions(FZeroSNESRecomp PRIVATE
@@ -301,6 +320,7 @@ target_compile_definitions(FZeroSNESRecomp PRIVATE
     RECOMP_UI_DEFAULT_RENDERER_KEY="")
 
 function(configure_fzero_target target)
+    target_include_directories(${target} SYSTEM PRIVATE "${RAPIDJSON_INCLUDE_DIR}")
     target_sources(${target} PRIVATE src/fzero_callouts_runtime.c)
     target_link_libraries(${target} PRIVATE fzero_callouts)
     target_sources(${target} PRIVATE src/fzero_capture.c src/fzero_capture_records.cpp)
@@ -318,7 +338,6 @@ function(configure_fzero_target target)
     snesrecomp_target_render_workers(${target})
     target_link_libraries(${target} PRIVATE fzero_video)
     target_include_directories(${target} PRIVATE
-        "${CMAKE_SOURCE_DIR}"
         "${CMAKE_SOURCE_DIR}/src"
         "${CMAKE_SOURCE_DIR}/recomp"
         ${SNESRECOMP_RUNNER_INCLUDE_DIRS})
@@ -345,7 +364,9 @@ set(FZERO_DESKTOP_NAME "F-Zero Forever" CACHE STRING "Desktop executable name fo
 if(FZERO_DESKTOP_NAME STREQUAL "FZeroSNESRecomp")
     set(FZERO_DESKTOP_NAME "F-Zero Forever" CACHE STRING "Desktop executable name for isolated experiments" FORCE)
 endif()
-set_target_properties(FZeroSNESRecomp PROPERTIES OUTPUT_NAME "${FZERO_DESKTOP_NAME}")
+if(NOT ANDROID)
+    set_target_properties(FZeroSNESRecomp PROPERTIES OUTPUT_NAME "${FZERO_DESKTOP_NAME}")
+endif()
 if(WIN32)
     # The headless host remains a console tool. Production desktop errors use
     # the message box and crash logs, without opening an unrelated terminal.
@@ -367,7 +388,9 @@ if(BUILD_TESTING AND SNESRECOMP_SDL_BACKEND STREQUAL "SDL3")
     snesrecomp_target_sdl(fzero_local_controls_tests)
     add_test(NAME fzero_local_controls COMMAND fzero_local_controls_tests)
 endif()
-target_link_libraries(FZeroSNESRecomp PRIVATE OpenGL::GL)
+if(NOT ANDROID)
+    target_link_libraries(FZeroSNESRecomp PRIVATE OpenGL::GL)
+endif()
 recomp_target_launcher_ui(FZeroSNESRecomp CONSOLE snes)
 snesrecomp_enable_recomp_net(FZeroSNESRecomp)
 # Identify dependencies as well as the game in player performance reports.
@@ -406,6 +429,11 @@ endforeach()
 string(SHA256 FZERO_REPLAY_BUILD_ID "${fingerprint}")
 configure_file(src/fzero_build.h.in generated/fzero_build.h @ONLY)
 target_include_directories(FZeroSNESRecomp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(ANDROID)
+    # Android installs approved resources from its APK asset archive. Desktop
+    # staging also invokes host tools, which cannot run in an NDK cross-build.
+    return()
+endif()
 add_custom_command(TARGET FZeroSNESRecomp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/img/boxart.tga"

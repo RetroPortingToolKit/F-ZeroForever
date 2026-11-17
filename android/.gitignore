@@ -1,0 +1,9 @@
+/external/
+/.gradle/
+/app/build/
+/app/.cxx/
+/app/src/main/assets/content.zip
+/local.properties
+/build-file-tests/
+*.keystore
+*.jks

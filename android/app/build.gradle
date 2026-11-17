@@ -1,0 +1,45 @@
+plugins { id 'com.android.application' }
+
+def gameVersion = file('../../VERSION').text.trim()
+def nativeArgs = ['-DANDROID_STL=c++_static', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
+                  '-DBUILD_TESTING=OFF', '-DCMAKE_BUILD_TYPE=Release']
+['SNESRECOMP_ROOT','RECOMP_UI_ROOT','FZERO_GEN_DIR','FZERO_DELUXE_GEN_DIR','FZERO_DELUXE_DATA_FILE',
+ 'SNESRECOMP_RECOMP_NET_ROOT','SNESRECOMP_RBENGINE_ROOT','Python3_EXECUTABLE'].each { name ->
+    if (System.getenv(name)) nativeArgs.add('-D' + name + '=' + System.getenv(name).replace('\\','/'))
+}
+
+android {
+    namespace 'org.retroporting.fzero'
+    compileSdk 35
+    ndkVersion '27.1.12297006'
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId 'org.retroporting.fzero'
+        minSdk 28
+        targetSdk 35
+        versionCode 20100
+        versionName gameVersion
+        externalNativeBuild { cmake {
+            arguments(*nativeArgs)
+            abiFilters(*((project.findProperty('abis') ?: 'arm64-v8a,x86_64').split(',')))
+            targets 'FZeroSNESRecomp'
+        } }
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+    }
+    externalNativeBuild { cmake { path '../../CMakeLists.txt'; version '3.22.1' } }
+    sourceSets.main.java.srcDir '../external/SDL/android-project/app/src/main/java'
+    signingConfigs {
+        release {
+            if (System.getenv('FZERO_KEYSTORE')) {
+                storeFile file(System.getenv('FZERO_KEYSTORE'))
+                storePassword System.getenv('FZERO_STORE_PASSWORD')
+                keyAlias System.getenv('FZERO_KEY_ALIAS')
+                keyPassword System.getenv('FZERO_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig signingConfigs.release }
+    }
+    lint { abortOnError true }
+}

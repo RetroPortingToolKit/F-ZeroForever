@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 - Android
+
+- Add a signed Android APK with a native touch launcher, verified ROM import,
+  Settings and Mods, multitouch racing controls and standard gamepad support.
+- Default to adaptive Fit to screen. Preserve saved screen and mod choices.
+- Keep quick save/load, local records and default-on crash/replay recording;
+  expose recording and optional portable HD rendering in Mods.
+
 ## 2.0.2 - All twelve cars by default
 
 - Enable all eight extra CGP cars for fresh single-player settings, alongside

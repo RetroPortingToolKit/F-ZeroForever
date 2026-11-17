@@ -51,7 +51,7 @@
 #include "spc_player.h"
 #include "types.h"
 
-#include "third_party/gl_core/gl_core_3_1.h"
+#include "gl_core_3_1.h"
 #include "glsl_shader.h"
 #include "desktop/config.h"
 #include "desktop/sdl_compat.h"
@@ -63,6 +63,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef __ANDROID__
+extern void FzeroAndroidPrepare(void);
+extern uint32_t FzeroAndroidInput(void);
+extern void FzeroAndroidCommands(int *running, int *paused);
+#endif
 
 enum {
   kFrameWidth = 256,
@@ -979,7 +985,11 @@ static uint32_t keyboard_input_from_keys(const uint8_t *keys,unsigned player) {
 }
 
 static uint32_t keyboard_input(void) {
-  return keyboard_input_from_keys(snesrecomp_sdl_get_keyboard_state(),0);
+  return keyboard_input_from_keys(snesrecomp_sdl_get_keyboard_state(),0)
+#ifdef __ANDROID__
+      | FzeroAndroidInput()
+#endif
+      ;
 }
 
 static void local_ui_keyboard_state(uint8_t *keys);
@@ -989,7 +999,11 @@ static uint32_t keyboard_guest_input_for_player(unsigned player) {
   local_ui_keyboard_state(keys);
   for (int i = 0; i < 2; ++i)
     if (g_quick_keys[i] > 0 && g_quick_keys[i] < SDL_SCANCODE_COUNT) keys[g_quick_keys[i]] = 0;
-  return keyboard_input_from_keys(keys,player);
+  return keyboard_input_from_keys(keys,player)
+#ifdef __ANDROID__
+      | (player==0 ? FzeroAndroidInput() : 0)
+#endif
+      ;
 }
 
 static uint32_t keyboard_guest_input(void) {return g_gameplay_keyboard?keyboard_guest_input_for_player(0):0;}
@@ -1989,6 +2003,9 @@ static void restart_mode_capture(void) {
 #include "../tests/fzero_online_ui_driver.h"
 static int run_game(int argc, char **argv) {
   SDL_SetMainReady();
+#ifdef __ANDROID__
+  FzeroAndroidPrepare();
+#endif
   /* Launcher paths, imported shaders/music and saves are installation-relative,
    * even when a shortcut or terminal starts us in a different directory.
    * Resolve an explicit ROM against the caller's cwd before changing it. */
@@ -2045,6 +2062,10 @@ static int run_game(int argc, char **argv) {
     SDL_free((void *)base);
 #endif
   }
+#ifdef __ANDROID__
+  if ((!config_override || !*config_override) && snesrecomp_exe_dir_path("fzero-video.ini", video_config_path, sizeof(video_config_path)))
+    kVideoConfig=video_config_path;
+#endif
   if (!FzeroVideoLoad(&g_video, kVideoConfig))
     fprintf(stderr, "[fzero] Invalid video settings; invalid fields use defaults\n");
 #ifndef FZERO_HAS_DELUXE
@@ -2226,6 +2247,11 @@ static int run_game(int argc, char **argv) {
   bool cpu_hd=!g_compare_mode7 && g_video.hd_mode7 && gpu_choice && !strcmp(gpu_choice,"0"); /* developer reference */
   bool want_gpu=g_compare_mode7 || (g_video.hd_mode7 && !cpu_hd);
   bool use_gl_renderer = launcher_settings.shader_path[0] != 0 || want_gpu;
+#ifdef __ANDROID__
+  /* The SDL GLES presenter retains the native adaptive renderer. Desktop
+   * GL4 shaders/HD compute have a separate API contract. */
+  cpu_hd=g_video.hd_mode7;want_gpu=false;use_gl_renderer=false;
+#endif
   if (use_gl_renderer) fzero_gl_prepare_window();
   if (want_gpu) { SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,4); SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,0); }
   /* Window scale is a real row on the Settings page, so it has to size the
@@ -2239,6 +2265,9 @@ static int run_game(int argc, char **argv) {
       comparison_title(), initial_width, initial_height,
       SDL_WINDOW_RESIZABLE | kHighDpiFlag |
           (use_gl_renderer ? SDL_WINDOW_OPENGL : 0) |
+#ifdef __ANDROID__
+          SDL_WINDOW_FULLSCREEN_DESKTOP |
+#endif
           (getenv("FZERO_TEST_LOCAL_UI_HIDDEN")?SDL_WINDOW_HIDDEN:0));
   if (!window) Die("Unable to create the game window");
   FzeroGlRenderer gl_renderer;
@@ -2526,6 +2555,9 @@ static int run_game(int argc, char **argv) {
       }
       FzeroDiagnosticsSample(&diagnostic_frame, false);
     }
+#ifdef __ANDROID__
+    FzeroAndroidCommands(&running, &paused);
+#endif
     online_menu_test(frames);
     online_source_test(frames);
     SDL_Event event;
@@ -3129,7 +3161,11 @@ static int run_game(int argc, char **argv) {
    * the exit status would otherwise record a pass. */
   return g_selftest_failed ? 4 : 0;
 }
+#ifdef __ANDROID__
+__attribute__((visibility("default"))) int SDL_main(int argc,char **argv) {
+#else
 int main(int argc,char **argv) {
+#endif
   int result;
   do {result=run_game(argc,argv);}while(!result && FzeroNetplayResume());
   return result;

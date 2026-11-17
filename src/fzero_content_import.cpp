@@ -77,7 +77,7 @@ void safeRelative(const fs::path &p) {
   need(p.generic_string().size() <= 768 &&
            std::distance(p.begin(), p.end()) <= 32,
        "The project has an excessively long or deeply nested path.");
-  for (auto &part : p) {
+  for (const auto &part : p) {
     auto s = part.string();
     auto stem = lower(s.substr(0, s.find('.')));
     if (s.empty())
@@ -138,7 +138,7 @@ ZipContents unzip(const fs::path &source, const fs::path &dest,
     need(!archive_entry_symlink(entry) && !archive_entry_hardlink(entry),
          "Linked files cannot be imported.");
     bool hidden = false;
-    for (auto &component : rel)
+    for (const auto &component : rel)
       if (component.string().starts_with('.'))
         hidden = true;
     if (hidden) {
