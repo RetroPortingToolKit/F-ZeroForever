@@ -407,6 +407,7 @@ static void local_ui_presented(const FzeroPresenter *p) {
   local_ui_images(p,directory,label);
 }
 #else
+static void local_ui_observe_traffic(void) {}
 static void local_ui_keyboard_state(uint8_t *keys) {(void)keys;}
 static void local_ui_attach(void) {}
 static bool local_ui_tick(FzeroLocalControls *controls,SDL_Window *window) {(void)controls;(void)window;return false;}
