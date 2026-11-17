@@ -41,7 +41,7 @@ android {
     buildTypes {
         release { minifyEnabled false; signingConfig signingConfigs.release }
     }
-    lint { abortOnError true }
+    lint { abortOnError true; lintConfig file('lint.xml') }
 }
 dependencies {
     androidTestImplementation 'androidx.test:runner:1.6.2'

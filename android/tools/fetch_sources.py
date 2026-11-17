@@ -11,10 +11,16 @@ def patch_sdl_receivers():
     source = path.read_text(encoding='utf-8')
     for receiver in ('mUsbBroadcast', 'mBluetoothBroadcast'):
         before = f'        mContext.registerReceiver({receiver}, filter);'
-        after = (f'        if (Build.VERSION.SDK_INT >= 33) {{\n'
+        old_after = (f'        if (Build.VERSION.SDK_INT >= 33) {{\n'
                  f'            mContext.registerReceiver({receiver}, filter, Context.RECEIVER_NOT_EXPORTED);\n'
                  f'        }} else {{\n{before}\n        }}')
+        # Flags do not exist on this older-API branch. Keep the lint exception
+        # on that statement, with the actual runtime guard intact.
+        after = old_after.replace(before, '        //noinspection UnspecifiedRegisterReceiverFlag\n'+before)
         if after in source:
+            continue
+        if old_after in source:
+            source = source.replace(old_after, after)
             continue
         if source.count(before) != 1:
             raise RuntimeError('Unexpected SDL receiver source; review compatibility patch')

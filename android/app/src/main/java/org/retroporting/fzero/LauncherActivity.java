@@ -122,7 +122,7 @@ public final class LauncherActivity extends Activity {
       });
     TextView brand = text("F-ZERO  /  FOREVER", 18, CYAN);
     brand.setLetterSpacing(.15f);
-    brand.setTypeface(null, 1);
+    brand.setTypeface(null, Typeface.BOLD);
     shell.addView(brand);
     ScrollView scroll = new ScrollView(this);
     scroll.setFillViewport(true);
@@ -167,7 +167,7 @@ public final class LauncherActivity extends Activity {
     tag.setLetterSpacing(.14f);
     visual.addView(tag);
     TextView title = text("Fast tracks.\nEndless racing.", wide ? 27 : 34, TEXT);
-    title.setTypeface(null, 1);
+    title.setTypeface(null, Typeface.BOLD);
     visual.addView(title);
     View track = new View(this) {
       final Paint p = new Paint(3);
