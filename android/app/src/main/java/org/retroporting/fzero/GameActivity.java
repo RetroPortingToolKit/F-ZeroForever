@@ -54,6 +54,23 @@ public final class GameActivity extends SDLActivity {
   public void onBackPressed() {
     showMenu();
   }
+  @Override
+  public boolean dispatchKeyEvent(KeyEvent event) {
+    if (event.getKeyCode() == KeyEvent.KEYCODE_BACK ||
+        event.getKeyCode() == KeyEvent.KEYCODE_ESCAPE) {
+      if (event.getAction() == KeyEvent.ACTION_UP)
+        showMenu();
+      return true;
+    }
+    return super.dispatchKeyEvent(event);
+  }
+  @Override
+  protected void onDestroy() {
+    // SDL joins its native thread here, allowing SRAM and diagnostics to flush.
+    // The launcher is a different process; only the game process is disposable.
+    super.onDestroy();
+    android.os.Process.killProcess(android.os.Process.myPid());
+  }
   private void showMenu() {
     if (menu)
       return;

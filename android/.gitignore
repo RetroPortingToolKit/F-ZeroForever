@@ -5,5 +5,7 @@
 /app/src/main/assets/content.zip
 /local.properties
 /build-file-tests/
+/qa/
+/linux-inputs/
 *.keystore
 *.jks

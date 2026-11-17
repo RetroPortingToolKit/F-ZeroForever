@@ -49,8 +49,9 @@ public final class LauncherActivity extends Activity {
     io.execute(() -> {
       try {
         GameFiles.seed(getFilesDir());
-        GameFiles.content(getFilesDir(), getAssets().open("content.zip"),
-                          BuildConfig.VERSION_NAME);
+        try (InputStream bundled = getAssets().open("content.zip")) {
+          GameFiles.content(getFilesDir(), bundled, BuildConfig.VERSION_NAME);
+        }
         rom = GameFiles.hasRom(getFilesDir());
         ready = true;
         status = rom ? "F-Zero (USA) • Ready to race"
@@ -151,13 +152,23 @@ public final class LauncherActivity extends Activity {
     setContentView(shell);
   }
   private void home() {
+    boolean wide = getResources().getConfiguration().orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE;
     LinearLayout hero = card();
+    LinearLayout visual = wide ? column() : hero;
+    LinearLayout actions = wide ? column() : hero;
+    if (wide) {
+      hero.setOrientation(LinearLayout.HORIZONTAL);
+      visual.setPadding(0, 0, dp(20), 0);
+      hero.addView(visual, new LinearLayout.LayoutParams(0, -2, 1));
+      hero.addView(actions, new LinearLayout.LayoutParams(0, -2, 1));
+    }
     TextView tag = text("THE NEXT LAP IS YOURS", 12, GOLD);
     tag.setLetterSpacing(.14f);
-    hero.addView(tag);
-    TextView title = text("Fast tracks.\nEndless racing.", 34, TEXT);
+    visual.addView(tag);
+    TextView title = text("Fast tracks.\nEndless racing.", wide ? 27 : 34, TEXT);
     title.setTypeface(null, 1);
-    hero.addView(title);
+    visual.addView(title);
     View track = new View(this) {
       final Paint p = new Paint(3);
       @Override
@@ -175,8 +186,8 @@ public final class LauncherActivity extends Activity {
         }
       }
     };
-    hero.addView(track, new LinearLayout.LayoutParams(-1, dp(95)));
-    hero.addView(text(status, 15, MUTED));
+    visual.addView(track, new LinearLayout.LayoutParams(-1, dp(wide ? 60 : 95)));
+    actions.addView(text(status, 15, MUTED));
     Button play = button(rom ? "Play F-Zero" : "Choose ROM", true, () -> {
       if (rom) {
         startActivity(new Intent(this, GameActivity.class));
@@ -184,9 +195,9 @@ public final class LauncherActivity extends Activity {
         pickRom();
     });
     play.setEnabled(ready);
-    hero.addView(play);
+    actions.addView(play);
     if (rom)
-      hero.addView(button("Change ROM", false, this::pickRom));
+      actions.addView(button("Change ROM", false, this::pickRom));
     LinearLayout info = card();
     info.addView(text("Made for your screen", 20, TEXT));
     info.addView(text("Adaptive widescreen follows your display. Play with " +

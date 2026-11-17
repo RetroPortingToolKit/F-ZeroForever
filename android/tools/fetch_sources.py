@@ -4,6 +4,23 @@ import hashlib, json, tarfile, urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def patch_sdl_receivers():
+    # Match the Android 13+ receiver contract used by upstream's SDL2 branch:
+    # https://github.com/libsdl-org/SDL/blob/SDL2/android-project/app/src/main/java/org/libsdl/app/HIDDeviceManager.java
+    path = ROOT / 'external/SDL/android-project/app/src/main/java/org/libsdl/app/HIDDeviceManager.java'
+    source = path.read_text(encoding='utf-8')
+    for receiver in ('mUsbBroadcast', 'mBluetoothBroadcast'):
+        before = f'        mContext.registerReceiver({receiver}, filter);'
+        after = (f'        if (Build.VERSION.SDK_INT >= 33) {{\n'
+                 f'            mContext.registerReceiver({receiver}, filter, Context.RECEIVER_NOT_EXPORTED);\n'
+                 f'        }} else {{\n{before}\n        }}')
+        if after in source:
+            continue
+        if source.count(before) != 1:
+            raise RuntimeError('Unexpected SDL receiver source; review compatibility patch')
+        source = source.replace(before, after)
+    path.write_text(source, encoding='utf-8', newline='\n')
+
 def main():
     lock = json.loads((ROOT / 'sources.json').read_text())
     for name, spec in lock.items():
@@ -37,6 +54,7 @@ def main():
                 tf.extract(entry, dest, filter='data')
         (dest / '.verified').write_text(spec['sha256'])
         print(name, 'verified', flush=True)
+    patch_sdl_receivers()
 
 if __name__ == '__main__':
     main()
