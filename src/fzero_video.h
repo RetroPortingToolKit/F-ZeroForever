@@ -24,6 +24,7 @@ typedef struct FzeroVideoSettings {
   FzeroAspect aspect;
   unsigned fps; /* 0 = display refresh (Auto). */
   bool fps_enabled;
+  bool fps_readout; /* Optional host Game FPS overlay, independent of presentation. */
   bool bs_deluxe; /* BS vehicles; legacy field name retained for callers. */
   bool bs_tracks; /* Original BS courses, exclusive with CGP's corrected set. */
   FzeroGameplaySettings gameplay; /* Author's rules are all opt-in. */

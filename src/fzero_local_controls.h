@@ -27,4 +27,4 @@ void FzeroLocalControlsDraw(const FzeroLocalControls *controls,uint32_t *pixels,
 
 void FzeroLocalControlsInputs(const FzeroLocalControls *controls,uint16_t inputs[FZERO_MAX_PLAYERS]);
 
-void FzeroLocalControlsAssignPlayers(FzeroLocalControls *controls,const int sources[],const char guids[][40],unsigned count);
+void FzeroLocalControlsAssignPlayers(FzeroLocalControls *controls,const int sources[],const char guids[][40],const uint32_t instances[],unsigned count);

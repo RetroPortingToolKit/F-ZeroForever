@@ -19,6 +19,7 @@ static void viewport_tests(void) {
   CHECK(settings.local_two_player && settings.gameplay.vehicle_packs==7 && settings.gameplay.stock_rebalance==15);
   CHECK(settings.hd_mode7 && settings.hd_scale == 4 && !settings.diagnostics);
   CHECK(settings.crash_replay);
+  CHECK(!settings.fps_readout);
   CHECK(settings.gameplay.enabled == FZERO_RULE_DEFAULT_MASK);
   FzeroVideoStock(&settings);
   CHECK(!settings.enhanced && settings.aspect == FZERO_ASPECT_STOCK && !settings.fps_enabled && !settings.bs_deluxe);
@@ -241,6 +242,12 @@ static void config_tests(void) {
   CHECK(!a.local_two_player && !a.gameplay.vehicle_packs && !a.gameplay.stock_rebalance && !a.bs_deluxe);
   CHECK(b.gameplay.always_records); /* Missing key defaults on, including old configs. */
   CHECK(b.crash_replay); /* Old performance Diagnostics=0 never disables crash capture. */
+  /* The optional game-rate readout must preserve both recording and display choices. */
+  for(unsigned on=0;on<2;++on) {
+    b.fps_readout=on!=0;b.crash_replay=false;b.fps_enabled=true;b.fps=360;
+    CHECK(FzeroVideoSave(&b,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini"));
+    CHECK(a.fps_readout==(on!=0) && !a.crash_replay && a.fps_enabled && a.fps==360);
+  }
   b.crash_replay=false;
   CHECK(FzeroVideoSave(&b,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini") && !a.crash_replay);
   b.gameplay.always_records=false;

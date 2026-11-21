@@ -6,6 +6,7 @@
 #include <string.h>
 
 static char s_config[1024], s_preferred[40];
+static uint32_t s_preferred_instance;
 static uint32_t s_bind[12];
 static int s_default_deadzone, s_deadzone;
 static unsigned s_profile_generation;
@@ -87,7 +88,8 @@ static void load_map(SDL_GameController *pad,uint32_t out[12],int *deadzone,int 
 }
 static void load_profile(SDL_GameController *pad) {load_map(pad,s_bind,&s_deadzone,-1);}
 
-void FzeroGamepadConfigure(const char *config, const char *guid, int deadzone) {
+void FzeroGamepadConfigure(const char *config, const char *guid, int deadzone, uint32_t instance) {
+  s_preferred_instance=instance;
   ++s_profile_generation;
   snprintf(s_config, sizeof(s_config), "%s", config ? config : "config.ini");
   snprintf(s_preferred, sizeof(s_preferred), "%s", guid ? guid : "");
@@ -106,7 +108,22 @@ void FzeroGamepadRefresh(SDL_GameController **pad) {
 #else
   int count = SDL_NumJoysticks();
 #endif
+  bool preferred_live=false;
+  for (int i=0;i<count;++i) {
+#if SNESRECOMP_SDL3
+    SDL_JoystickID id=ids[i];
+#else
+    if(!SDL_IsGameController(i))continue;
+    SDL_JoystickID id=SDL_JoystickGetDeviceInstanceID(i);
+#endif
+    if((uint32_t)id+1==s_preferred_instance)preferred_live=true;
+  }
   for (int i = 0; i < count && !*pad; ++i) {
+#if SNESRECOMP_SDL3
+    if(preferred_live && ids[i]+1!=s_preferred_instance)continue;
+#else
+    if(preferred_live && (uint32_t)SDL_JoystickGetDeviceInstanceID(i)+1!=s_preferred_instance)continue;
+#endif
 #if SNESRECOMP_SDL3
     SDL_GameController *candidate = SDL_OpenGamepad(ids[i]);
 #else

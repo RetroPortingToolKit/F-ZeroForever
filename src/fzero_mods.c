@@ -39,7 +39,7 @@ static const FzeroRule menu_rules[] = {
 };
 enum { VEHICLE_COUNT=2, VEHICLE_START=6+sizeof(menu_rules)/sizeof(*menu_rules), TITLE_INDEX=VEHICLE_START+VEHICLE_COUNT,
        RECORDS_INDEX=TITLE_INDEX+1, CRASH_INDEX=RECORDS_INDEX+1, LOCAL_INDEX=CRASH_INDEX+1, CALLOUT_INDEX=LOCAL_INDEX+1,
-       TRACK_START=CALLOUT_INDEX+1, TITLE_KIND=200, RECORDS_KIND=201, CRASH_KIND=202, LOCAL_KIND=203, CALLOUT_KIND=204 };
+       FPS_INDEX=CALLOUT_INDEX+1, TRACK_START=FPS_INDEX+1, TITLE_KIND=200, RECORDS_KIND=201, CRASH_KIND=202, LOCAL_KIND=203, CALLOUT_KIND=204, FPS_KIND=205 };
 static const char callout_description[]=
   "Play your boost-power WAV on new laps, or choose to announce it only once when lap 2 begins. "
   "The final-lap WAV plays when the last lap begins. Add an optional finish WAV for the final finish-line crossing. "
@@ -49,6 +49,11 @@ static bool callouts_ready(void) {
   return FzeroCalloutsValid(video->lap_boost_wav) && FzeroCalloutsValid(video->final_lap_wav);
 }
 static const char local_description[]="Enabled by default. Add VS MODE to the main menu. Two to four humans race on one shared course. Two players use top/bottom views; three or four use a four-view grid. Choose the player count below, or press Y on P1's machine-selection page. Online uses the lobby player count. Choose from all twelve machines and the installed single-player course catalog. All twelve ships use their authored CGP artwork, handling, energy boosts and exhaust. Your single-player content settings are retained.";
+static const char fps_description[] =
+  "Show the game's simulation FPS using the shared on-screen readout. "
+  "Normal game speed is about 60 FPS even when Presentation FPS draws more images. "
+  "Toggle here or use the FPS readout shortcut in Controls (F by default). "
+  "Independent of presentation settings and local recording.";
 static const char crash_description[] =
   "Automatically keep recent inputs and checkpoints in diagnostics beside the game. "
   "Enabled by default for testing, including online play and existing installations. "
@@ -76,6 +81,7 @@ static bool vehicle_enabled(unsigned i) {
 }
 static int count(void *ctx) { (void)ctx; return TRACK_START + FzeroTrackModsProvider()->feature_count(ctx); }
 static int identity(const char *package, const char *feature) {
+  if(package && feature && !strcmp(package,"fzero-fps-readout") && !strcmp(feature,"game-fps"))return FPS_KIND;
   if(package && feature && !strcmp(package,"fzero-lap-callouts") && !strcmp(feature,"lap-callouts"))return CALLOUT_KIND;
   if(package && feature && !strcmp(package,"fzero-local-2p") && !strcmp(feature,"local-2p"))return LOCAL_KIND;
   if (package && feature && !strcmp(package,"fzero-crash-replay") && !strcmp(feature,"crash-replay")) return CRASH_KIND;
@@ -91,6 +97,11 @@ static int identity(const char *package, const char *feature) {
   return 0;
 }
 static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
+  if(index==FPS_INDEX && out) {
+    memset(out,0,sizeof(*out));COPY(out->id,"fzero-fps-readout");COPY(out->name,"Game FPS readout");
+    COPY(out->version,"1");COPY(out->author,"SNESRecomp contributors");
+    COPY(out->description,fps_description);out->enabled=video->fps_readout;return 1;
+  }
   if(index==CALLOUT_INDEX && out) {
     memset(out,0,sizeof(*out));COPY(out->id,"fzero-lap-callouts");COPY(out->name,"Lap voice callouts");
     COPY(out->version,"1");COPY(out->author,"User-supplied recordings");COPY(out->description,callout_description);
@@ -140,6 +151,13 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
   return 1;
 }
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
+  if(index==FPS_INDEX && out) {
+    memset(out,0,sizeof(*out));COPY(out->id,"game-fps");COPY(out->package_id,"fzero-fps-readout");
+    COPY(out->name,"Game FPS readout");COPY(out->package_name,out->name);COPY(out->package_version,"1");
+    COPY(out->group,"Testing");COPY(out->author,"SNESRecomp contributors");
+    COPY(out->description,fps_description);out->enabled=video->fps_readout;
+    COPY(out->status,out->enabled?"Game FPS visible":"Hidden");return 1;
+  }
   if(index==CALLOUT_INDEX && out) {
     memset(out,0,sizeof(*out));COPY(out->id,"lap-callouts");COPY(out->package_id,"fzero-lap-callouts");
     COPY(out->name,"Lap voice callouts");COPY(out->package_name,out->name);COPY(out->package_version,"1");
@@ -251,7 +269,7 @@ static int option_get(void *ctx, const char *package, const char *feature, int i
     else COPY(out->description,"2x uses less detail; 4x is recommended; 8x offers a finer track grid. Window size and display filtering are separate. Sprites and text keep their original detail.");
     return 1;
   }
-  if (!kind || kind == 3 || kind == 5 || kind == 6 || index != 0 || !out) return 0;
+  if (!kind || kind == FPS_KIND || kind == 3 || kind == 5 || kind == 6 || index != 0 || !out) return 0;
   if (kind == TITLE_KIND) {
     memset(out,0,sizeof(*out)); COPY(out->id,"screen"); COPY(out->label,"Title screen");
     COPY(out->description,"Works with any enabled courses. Disable the override to restore Original.");
@@ -322,6 +340,7 @@ static int choice_get(void *ctx, const char *package, const char *feature,
   return 1;
 }
 static int enable(void *ctx, const char *package, const char *feature, int enabled) {
+  if(identity(package,feature)==FPS_KIND) {video->fps_readout=enabled!=0;return 1;}
   if(identity(package,feature)==CALLOUT_KIND) {
     if(enabled && !callouts_ready()) {
       COPY(error_text,"Choose valid boost-power and final-lap WAV files before enabling this mod.");return 0;

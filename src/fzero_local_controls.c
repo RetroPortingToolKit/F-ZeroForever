@@ -12,6 +12,7 @@ struct FzeroLocalControls {
   int seat[FZERO_MAX_PLAYERS];
   int source[FZERO_MAX_PLAYERS];
   char guid[FZERO_MAX_PLAYERS][40];
+  uint32_t instance[FZERO_MAX_PLAYERS];
   bool assigned;
   uint32_t previous[FZERO_MAX_PLAYERS],input[FZERO_MAX_PLAYERS],keyboard;
   bool setup,ready[FZERO_MAX_PLAYERS],release[FZERO_MAX_PLAYERS],scan,scripted,back;
@@ -25,10 +26,12 @@ FzeroLocalControls *FzeroLocalControlsCreate(FzeroVersusConfig config,bool scrip
   FzeroLocalControls *c=calloc(1,sizeof(*c));if(!c)return NULL;
   config.player_count=(uint8_t)FzeroVersusPlayers(config);c->config=config;FzeroLocalCourseLocation(config.course,&c->cup,NULL);for(unsigned p=0;p<FZERO_MAX_PLAYERS;++p)c->seat[p]=NO_DEVICE;c->setup=!scripted;c->scripted=scripted;c->scan=true;return c;
 }
-void FzeroLocalControlsAssignPlayers(FzeroLocalControls *c,const int sources[],const char guids[][40],unsigned count) {
+void FzeroLocalControlsAssignPlayers(FzeroLocalControls *c,const int sources[],const char guids[][40],const uint32_t instances[],unsigned count) {
   if(!c || c->scripted || count>FZERO_MAX_PLAYERS)return;
   c->assigned=true;c->scan=true;
   for(unsigned p=0;p<FZERO_MAX_PLAYERS;++p) {
+    c->seat[p]=NO_DEVICE;c->previous[p]=c->input[p]=0;c->release[p]=true;
+    c->instance[p]=p<count && instances?instances[p]:0;
     if(p>=count) {c->source[p]=0;continue;}
     c->source[p]=sources[p];snprintf(c->guid[p],sizeof(c->guid[p]),"%s",guids[p]);
     c->seat[p]=p<c->config.player_count && sources[p]==1?KEYBOARD:NO_DEVICE;
@@ -92,8 +95,12 @@ static void scan_pads(FzeroLocalControls *c) {
   if(c->assigned)for(unsigned p=0;p<c->config.player_count;++p)if(c->source[p]==1 && c->seat[p]==NO_DEVICE) {
     c->seat[p]=KEYBOARD;c->release[p]=true;
   }
-  if(c->assigned)for(unsigned p=0;p<c->config.player_count;++p)if(c->source[p]==2 && c->seat[p]==NO_DEVICE) {
-    for(unsigned i=0;i<MAX_PADS;++i)if(c->pads[i].handle && true) {
+  /* Reserve the launcher's actual devices before filling GUID-only waiting
+   * seats. Two controllers of the same model must not exchange players. */
+  if(c->assigned)for(unsigned pass=0;pass<2;++pass)
+  for(unsigned p=0;p<c->config.player_count;++p)if(c->source[p]==2 && c->seat[p]==NO_DEVICE) {
+    if(!pass && !c->instance[p])continue;
+    for(unsigned i=0;i<MAX_PADS;++i)if(c->pads[i].handle) {
       bool used=false;for(unsigned other=0;other<c->config.player_count;++other)if(c->seat[other]==(int)i)used=true;
       if(used)continue;
       char guid[40];
@@ -103,6 +110,7 @@ static void scan_pads(FzeroLocalControls *c) {
       SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(c->pads[i].handle)),guid,sizeof(guid));
 #endif
       if(c->guid[p][0] && SDL_strcasecmp(guid,c->guid[p]))continue;
+      if(!pass && (uint32_t)c->pads[i].id+1!=c->instance[p])continue;
       c->seat[p]=(int)i;c->release[p]=true;break;
     }
   }
@@ -339,5 +347,5 @@ void FzeroLocalControlsInputs(const FzeroLocalControls *c,uint16_t inputs[FZERO_
 }
 
 void FzeroLocalControlsAssign(FzeroLocalControls *c,const int sources[2],const char guids[2][40]) {
-  FzeroLocalControlsAssignPlayers(c,sources,guids,2);
+  FzeroLocalControlsAssignPlayers(c,sources,guids,NULL,2);
 }

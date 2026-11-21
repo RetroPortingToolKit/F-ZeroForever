@@ -48,7 +48,7 @@ int main(void) {
   SDL_Joystick *pads[2]={SDL_OpenJoystick(ids[0]),SDL_OpenJoystick(ids[1])};CHECK(pads[0] && pads[1]);
   FILE *f=fopen("local-controls-test.ini","w");CHECK(f);
   fputs("[Local2P.P2]\nControls=DpadUp,DpadDown,DpadLeft,DpadRight,Back,Start,B,X,Y,A,Lb,Rb\n",f);fclose(f);
-  FzeroGamepadConfigure("local-controls-test.ini","",25);
+  FzeroGamepadConfigure("local-controls-test.ini","",25,0);
   FzeroLocalControls *probe=FzeroLocalControlsCreate((FzeroVersusConfig){0,{0,1},2},false);CHECK(probe);
   CHECK(FzeroLocalControlsKeyboardPlayer(probe)==0);poll(probe,0);
   CHECK(SDL_SetJoystickVirtualButton(pads[0],SDL_GAMEPAD_BUTTON_START,true));poll(probe,0);
@@ -214,7 +214,7 @@ int main(void) {
    * keys. One Start edge changes only one shared page, even if all seats see it. */
   c=FzeroLocalControlsCreate((FzeroVersusConfig){0,{0,1,2,3},4},false);CHECK(c);
   int keyboard_sources[4]={1,1,1,1};char keyboard_guids[4][40]={{0}};
-  FzeroLocalControlsAssignPlayers(c,keyboard_sources,keyboard_guids,4);
+  FzeroLocalControlsAssignPlayers(c,keyboard_sources,keyboard_guids,NULL,4);
   uint32_t keyboard_inputs[4]={0};poll_keyboards(c,keyboard_inputs);
   for(unsigned p=0;p<4;++p)keyboard_inputs[p]=8;
   poll_keyboards(c,keyboard_inputs);CHECK(FzeroLocalControlsPage(c)==FZERO_LOCAL_CUP);
@@ -248,7 +248,7 @@ int main(void) {
   c=FzeroLocalControlsCreate((FzeroVersusConfig){0,{0,1,2,3},2},false);CHECK(c);
   int four_sources[4]={2,2,2,2};char four_guids[4][40]={{0}};
   for(unsigned p=0;p<4;++p)SDL_GUIDToString(SDL_GetJoystickGUID(four_pads[p]),four_guids[p],40);
-  FzeroLocalControlsAssignPlayers(c,four_sources,four_guids,4);poll(c,0);
+  FzeroLocalControlsAssignPlayers(c,four_sources,four_guids,NULL,4);poll(c,0);
   FzeroActor four_spawns[4]={{.x=256,.y=256},{.x=320,.y=256},{.x=384,.y=256},{.x=448,.y=256}};
   race=FzeroVersusCreate((FzeroVersusConfig){0,{0,1,2,3},4},world,four_spawns,(FzeroActorTables){empty_table,NULL,0});CHECK(race);
   FzeroLocalControlsLoaded(c);poll(c,0);
@@ -258,16 +258,42 @@ int main(void) {
   CHECK(SDL_SetJoystickVirtualButton(four_pads[3],SDL_GAMEPAD_BUTTON_SOUTH,false));poll(c,0);
   /* A real pad remains independent while three other seats share keys. */
   FzeroLocalSetMenuOwner(0);
-  int mixed_sources[4]={2,1,1,1};FzeroLocalControlsAssignPlayers(c,mixed_sources,four_guids,4);poll(c,0);
+  int mixed_sources[4]={2,1,1,1};FzeroLocalControlsAssignPlayers(c,mixed_sources,four_guids,NULL,4);poll(c,0);
   CHECK(SDL_SetJoystickVirtualButton(four_pads[0],SDL_GAMEPAD_BUTTON_DPAD_UP,true));
   uint32_t mixed_keys[4]={0,1,1,1};poll_keyboards(c,mixed_keys);FzeroLocalControlsInputs(c,restored);
   CHECK(restored[0]==16 && restored[1]==1 && restored[2]==1 && restored[3]==1);
   CHECK(SDL_SetJoystickVirtualButton(four_pads[0],SDL_GAMEPAD_BUTTON_DPAD_UP,false));
-  FzeroLocalControlsAssignPlayers(c,four_sources,four_guids,4);poll(c,0);
+  FzeroLocalControlsAssignPlayers(c,four_sources,four_guids,NULL,4);poll(c,0);
   FzeroVersusDestroy(race);race=NULL;
   CHECK(SDL_DetachVirtualJoystick(four_ids[3]));poll(c,0);uint16_t disconnected[4];FzeroLocalControlsInputs(c,disconnected);CHECK(!disconnected[3]);
   FzeroLocalControlsDestroy(c);
   for(unsigned p=0;p<4;++p) {SDL_CloseJoystick(four_pads[p]);if(p<3)CHECK(SDL_DetachVirtualJoystick(four_ids[p]));}
+  /* Deliberately reverse two physical controllers with one model GUID.
+   * GUID-only enumeration would exchange these players' actual inputs. */
+  SDL_JoystickID twin_ids[2]={attach("Identical local controller"),attach("Identical local controller")};
+  SDL_Joystick *twin_pads[2]={SDL_OpenJoystick(twin_ids[0]),SDL_OpenJoystick(twin_ids[1])};
+  CHECK(twin_pads[0] && twin_pads[1]);
+  int twin_sources[2]={2,2};char twin_guids[2][40];
+  for(unsigned p=0;p<2;++p)SDL_GUIDToString(SDL_GetJoystickGUID(twin_pads[p]),twin_guids[p],40);
+  CHECK(!strcmp(twin_guids[0],twin_guids[1]));
+  uint32_t preferred[2]={twin_ids[1]+1,twin_ids[0]+1};
+  c=FzeroLocalControlsCreate((FzeroVersusConfig){0,{0,1},2},false);CHECK(c);
+  FzeroLocalControlsAssignPlayers(c,twin_sources,twin_guids,preferred,2);poll(c,0);
+  race=FzeroVersusCreate((FzeroVersusConfig){0,{0,1},2},world,four_spawns,(FzeroActorTables){empty_table,NULL,0});CHECK(race);
+  FzeroLocalSetMenuOwner(0);FzeroLocalControlsLoaded(c);poll(c,0);
+  CHECK(SDL_SetJoystickVirtualAxis(twin_pads[0],SDL_GAMEPAD_AXIS_LEFTX,-32767));
+  CHECK(SDL_SetJoystickVirtualAxis(twin_pads[1],SDL_GAMEPAD_AXIS_LEFTX,32767));poll(c,0);
+  uint16_t twin_input[4];FzeroLocalControlsInputs(c,twin_input);
+  CHECK((twin_input[0]&0xc0)==0x80 && (twin_input[1]&0xc0)==0x40);
+  SDL_CloseJoystick(twin_pads[0]);CHECK(SDL_DetachVirtualJoystick(twin_ids[0]));poll(c,0);
+  FzeroLocalControlsInputs(c,twin_input);CHECK((twin_input[0]&0xc0)==0x80 && !twin_input[1]);
+  SDL_JoystickID replacement=attach("Identical local controller");
+  SDL_Joystick *replacement_pad=SDL_OpenJoystick(replacement);CHECK(replacement_pad);poll(c,0);
+  CHECK(SDL_SetJoystickVirtualAxis(replacement_pad,SDL_GAMEPAD_AXIS_LEFTX,-32767));poll(c,0);
+  FzeroLocalControlsInputs(c,twin_input);CHECK((twin_input[0]&0xc0)==0x80 && (twin_input[1]&0xc0)==0x40);
+  FzeroLocalControlsDestroy(c);FzeroVersusDestroy(race);race=NULL;
+  SDL_CloseJoystick(twin_pads[1]);SDL_CloseJoystick(replacement_pad);
+  CHECK(SDL_DetachVirtualJoystick(twin_ids[1]) && SDL_DetachVirtualJoystick(replacement));
   SDL_Quit();remove("local-controls-test.ini");
   puts("local controls: distinct devices/bindings, ready, duplicate machines, launcher assignments, uninterrupted focus/device loss, end/rematch/change/load/reset/disconnect passed");return 0;
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.1 - Controller ownership and Game FPS
+
+- Keep each connected controller assigned to one player. Selecting it for
+  another player transfers it there without clearing several player cards.
+- Preserve separate assignments for two controllers of the same model,
+  including launcher-to-game handoff and reconnects.
+- Wire the FPS shortcut and add an optional Game FPS readout in Mods. Its saved
+  choice is independent of Presentation FPS and crash/input recording.
+
 ## 2.1.0 - Android
 
 - Add a signed Android APK with a native touch launcher, verified ROM import,
