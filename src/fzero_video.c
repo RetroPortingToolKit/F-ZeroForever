@@ -155,6 +155,9 @@ bool FzeroVideoLoad(FzeroVideoSettings *s, const char *path) {
     } else if (!strcmp(key,"LocalTwoPlayer")) {
       if(!strcmp(value,"0") || !strcmp(value,"1"))s->local_two_player=value[0]=='1';
       else valid=false;
+    } else if (!strcmp(key,"FpsReadout")) {
+      if(!strcmp(value,"0") || !strcmp(value,"1"))s->fps_readout=value[0]=='1';
+      else valid=false;
     } else if (!strcmp(key, "CrashReplay")) {
       if (!strcmp(value, "0") || !strcmp(value, "1")) s->crash_replay = value[0] == '1';
       else valid = false;
@@ -237,6 +240,7 @@ bool FzeroVideoSave(const FzeroVideoSettings *s, const char *path) {
                     s->hd_mode7, s->hd_scale >= FZERO_HD_SCALE_MIN && s->hd_scale <= FZERO_GPU_HD_SCALE_MAX ? s->hd_scale : (unsigned)kSnesHdDefaultScale, s->hd_supersample>=1 && s->hd_supersample<=4?s->hd_supersample:1, s->diagnostics) > 0;
   if (fprintf(f, "AlwaysShowRecords=%d\n", s->gameplay.always_records) < 0) ok = false;
   if (fprintf(f, "CrashReplay=%d\n", s->crash_replay) < 0) ok = false;
+  if (fprintf(f,"FpsReadout=%d\n",s->fps_readout)<0)ok=false;
   if (fprintf(f,"LocalTwoPlayer=%d\n",s->local_two_player)<0)ok=false;
   if(fprintf(f,"LocalPlayers=%u\nFinishWav=%s\n",s->local_players,s->finish_wav)<0)ok=false;
   if(fprintf(f,"LapCallouts=%d\nLapBoostSecondLapOnly=%d\nLapBoostWav=%s\nFinalLapWav=%s\n",

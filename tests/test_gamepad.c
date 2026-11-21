@@ -37,7 +37,7 @@ int main(void) {
   fprintf(cfg, "[GamepadMap]\nControls = DpadUp,DpadDown,DpadLeft,DpadRight,Back,Start,B,A,Y,X,Lb,Rb\n"
                "[Controller.%s]\nControls = ,DpadDown,DpadLeft,DpadRight,Back,Start,L2,X,Y,A,Lb,Rb\nDeadzone = 3\n", guid);
   fclose(cfg);
-  FzeroGamepadConfigure("gamepad-test.ini", guid, 25);
+  FzeroGamepadConfigure("gamepad-test.ini", guid, 25,0);
   SDL_GameController *pad = NULL;
   FzeroGamepadRefresh(&pad);
   CHECK(pad && SDL_GetGamepadID(pad) == selected);
@@ -82,7 +82,7 @@ int main(void) {
       "ControlsP2=DpadUp,DpadDown,DpadLeft,DpadRight,Back,Start,B,X,Y,A,Lb,Rb\n"
       "[Controller.%s]\nControls=,DpadDown,DpadLeft,DpadRight,Back,Start,L2,X,Y,A,Lb,Rb\nDeadzone=3\n"
       "[Controller]\nDeadzoneP1=10\nDeadzoneP2=80\n",guid);
-  fclose(cfg);FzeroGamepadConfigure("gamepad-test.ini",guid,25);
+  fclose(cfg);FzeroGamepadConfigure("gamepad-test.ini",guid,25,0);
   CHECK(SDL_SetJoystickVirtualButton(joy,SDL_GAMEPAD_BUTTON_NORTH,false));
   CHECK(SDL_SetJoystickVirtualButton(joy,SDL_GAMEPAD_BUTTON_WEST,false));
   CHECK(SDL_SetJoystickVirtualAxis(joy,SDL_GAMEPAD_AXIS_LEFT_TRIGGER,-32768));
@@ -96,7 +96,7 @@ int main(void) {
   CHECK(FzeroGamepadRead(pad)==129); /* local maps do not replace the SP device profile */
   cfg=fopen("gamepad-test.ini","a");CHECK(cfg);
   fputs("[Local2P.P2]\nDeadzone=2\nControls=DpadUp,DpadDown,DpadLeft,DpadRight,Back,Start,B,A,Y,X,Lb,Rb\n",cfg);
-  fclose(cfg);FzeroGamepadConfigure("gamepad-test.ini",guid,25);
+  fclose(cfg);FzeroGamepadConfigure("gamepad-test.ini",guid,25,0);
   CHECK(FzeroGamepadReadPlayer(pad,1)==130); /* explicit local overrides remain final */
   CHECK(SDL_SetJoystickVirtualButton(joy,SDL_GAMEPAD_BUTTON_WEST,false));
   CHECK(SDL_SetJoystickVirtualAxis(joy,SDL_GAMEPAD_AXIS_LEFTX,0));pump(&pad);
@@ -123,7 +123,31 @@ int main(void) {
   selected = attach("selected controller");
   pump(&pad);
   CHECK(pad && SDL_GetGamepadID(pad) == selected); /* same GUID, new instance */
-  SDL_CloseGamepad(pad);
+  SDL_CloseGamepad(pad);pad=NULL;
+  CHECK(SDL_DetachVirtualJoystick(selected));
+  SDL_JoystickID twins[2]={attach("Twin Controller"),attach("Twin Controller")};
+  SDL_Joystick *twin_joy[2]={SDL_OpenJoystick(twins[0]),SDL_OpenJoystick(twins[1])};
+  CHECK(twin_joy[0] && twin_joy[1]);
+  char twin_guid[2][40];
+  for(unsigned i=0;i<2;++i)SDL_GUIDToString(SDL_GetJoystickGUID(twin_joy[i]),twin_guid[i],40);
+  CHECK(!strcmp(twin_guid[0],twin_guid[1]));
+  FzeroGamepadConfigure("gamepad-test.ini",twin_guid[1],25,twins[1]+1);
+  FzeroGamepadRefresh(&pad);CHECK(pad && SDL_GetGamepadID(pad)==twins[1]);
+  CHECK(SDL_SetJoystickVirtualAxis(twin_joy[0],SDL_GAMEPAD_AXIS_LEFTX,-32767));pump(&pad);
+  CHECK(!(FzeroGamepadRead(pad)&0xc0));
+  CHECK(SDL_SetJoystickVirtualAxis(twin_joy[1],SDL_GAMEPAD_AXIS_LEFTX,32767));pump(&pad);
+  CHECK((FzeroGamepadRead(pad)&0xc0)==0x80);
+  /* One host reference keeps the physical identities valid while the UI's
+   * own input reference is acquired and released. */
+  CHECK(SDL_Init(SDL_INIT_GAMEPAD));SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+  CHECK(SDL_WasInit(SDL_INIT_GAMEPAD) && SDL_GetGamepadID(pad)==twins[1]);
+  SDL_CloseJoystick(twin_joy[0]);SDL_CloseJoystick(twin_joy[1]);
+  CHECK(SDL_DetachVirtualJoystick(twins[0]));pump(&pad);
+  CHECK(pad && SDL_GetGamepadID(pad)==twins[1]);
+  CHECK(SDL_DetachVirtualJoystick(twins[1]));pump(&pad);CHECK(!pad);
+  selected=attach("Twin Controller");pump(&pad);
+  CHECK(pad && SDL_GetGamepadID(pad)==selected); /* unavailable transient ID restores its model */
+  SDL_CloseGamepad(pad);CHECK(SDL_DetachVirtualJoystick(selected));
   SDL_Quit();
   remove("gamepad-test.ini");
   puts("F-Zero gamepad: selection, bindings, per-seat launcher maps/deadzones, local overrides, removal and reconnect passed");

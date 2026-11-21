@@ -912,6 +912,15 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
     fprintf(stderr, "[fzero-launcher] remembered ROM unavailable or invalid; opening launcher\n");
   }
 
+  /* Keep the input subsystem owned across launcher teardown. The existing
+   * preserve-SDL contract leaves these device identities valid when gameplay
+   * opens its independent handles; a GUID alone cannot distinguish twins. */
+  SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,"1");
+  if(!snesrecomp_sdl_init(SDL_INIT_GAMECONTROLLER)) {
+    fprintf(stderr,"[fzero-input] Cannot initialize controllers: %s\n",SDL_GetError());
+    return -1;
+  }
+  recomp_launcher_set_preserve_sdl(1);
   fprintf(stderr, "[fzero-launcher] opening%s\n", force_launcher ? " (--launcher)" : "");
   game.custom_content = FzeroContentProvider("mods", assets_dir);
   FzeroContentSetChangeCallback(content_changed, settings);
@@ -919,6 +928,7 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
       recomp_launcher_run_window("F-Zero Forever \xE2\x80\x94 Launcher", settings,
                                  &game, assets_dir, initial_rom, path,
                                  path_size);
+  recomp_launcher_set_preserve_sdl(0);
   int content_changed = FzeroContentShutdown();
   /* Whatever the launcher did, keep what the player chose there. Quitting is
    * as good a moment to persist as pressing Play. */
@@ -940,12 +950,13 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
 #endif
                    );
   }
-  if (action == 1) return 0;
+  if (action == 1) {SDL_Quit();return 0;}
   if (action == 0 && path[0]) return 1;
   if (initial_rom[0]) {
     snprintf(path, path_size, "%s", initial_rom);
     return 1;
   }
+  SDL_Quit();
   return -1;
 }
 
@@ -1308,6 +1319,7 @@ typedef struct FzeroHotkey {
 
 static FzeroHotkey g_hotkey_menu;
 static FzeroHotkey g_hotkey_rewind;
+static FzeroHotkey g_hotkey_fps;
 
 static FzeroHotkey resolve_hotkey(const char *name, const char *fallback) {
   FzeroHotkeySpec spec;
@@ -1759,6 +1771,27 @@ static void selftest_attach(void) {
 static void selftest_main_tick(long frame) {
   if (!g_selftest_pad) return;
   if (g_selftest_frame < 0 && !g_menu_pad_replay) return;
+  /* Reuse the real SDL hotkey fixture for the optional Game FPS contract. */
+  if(getenv("FZERO_TEST_FPS_READOUT")) {
+    static unsigned step;
+    static FzeroVideoSettings initial;
+    if(!step && frame>=g_selftest_frame) {
+      initial=g_video;selftest_push_key(g_hotkey_fps.key);step=1;
+    } else if((step==1 && frame>=g_selftest_frame+8) || (step==3 && frame>=g_selftest_frame+24)) {
+      bool visible=step==1?!initial.fps_readout:initial.fps_readout;
+      FzeroVideoSettings saved;const uint32_t *pixels=NULL;int w=0,h=0;
+      bool ok=g_video.fps_readout==visible && snes_osd_fps_visible()==visible &&
+          FzeroVideoLoad(&saved,kVideoConfig) && saved.fps_readout==visible &&
+          saved.crash_replay==initial.crash_replay && saved.fps_enabled==initial.fps_enabled && saved.fps==initial.fps;
+      if(visible)ok=ok && snes_osd_fps()>0 && snes_osd_image(&pixels,&w,&h) && pixels && w>0 && h>0;
+      if(!ok) {fputs("game-fps-selftest: FAIL hotkey/image/saved choices\n",stderr);g_selftest_failed=1;step=4;}
+      else if(step==1)step=2;
+      else {fprintf(stderr,"game-fps-selftest: PASS key=%u visible/saved roundtrip, rate=%g, recording=%d unchanged\n",(unsigned)g_hotkey_fps.key,snes_osd_fps(),saved.crash_replay);step=4;}
+    } else if(step==2 && frame>=g_selftest_frame+16) {
+      selftest_push_key(g_hotkey_fps.key);step=3;
+    }
+    return;
+  }
   if (g_menu_pad_replay) {
     /* Exercise the actual SDL gamepad path, including the user's button
      * mapping, instead of substituting the final guest input word. */
@@ -2113,6 +2146,8 @@ static int run_game(int argc, char **argv) {
   /* After the launcher, which may have just rewritten [KeyMap]. */
   g_hotkey_menu = resolve_hotkey("SaveStateMenu", "F7");
   g_hotkey_rewind = resolve_hotkey("Rewind", "R");
+  g_hotkey_fps = resolve_hotkey("DisplayPerf", "F");
+  snes_osd_set_fps_visible(g_video.fps_readout);
   memcpy(g_quick_keys, launcher_settings.assist_key_bind, sizeof(g_quick_keys));
   memcpy(g_quick_pads, launcher_settings.assist_pad_bind, sizeof(g_quick_pads));
   configure_rewind(&launcher_settings);
@@ -2412,7 +2447,7 @@ static int run_game(int argc, char **argv) {
   g_gameplay_keyboard=!online || launcher_settings.player_src[0]==1;
   g_gameplay_gamepad=!online || launcher_settings.player_src[0]==2;
   FzeroGamepadConfigure(g_config_path, g_selftest_pad ? g_selftest_guid : launcher_settings.player_gamepad_guid[0],
-                         launcher_settings.deadzone[0]);
+                         launcher_settings.deadzone[0], g_selftest_pad ? 0 : launcher_settings.player_gamepad_instance[0]);
   if(g_gameplay_gamepad)FzeroGamepadRefresh(&pad);
   if(online)fprintf(stderr,"[fzero-input] online source=%s\n",g_gameplay_gamepad?"gamepad":g_gameplay_keyboard?"keyboard":"none");
   FzeroLocalControls *local_controls=local_two_player && !online?
@@ -2420,7 +2455,7 @@ static int run_game(int argc, char **argv) {
   bool title_picker = false;
   double menu_audio_deadline = 0;
   if(local_two_player && !online && !local_controls)Die("Cannot allocate local two-player controls");
-  if(local_controls)FzeroLocalControlsAssignPlayers(local_controls,launcher_settings.player_src,launcher_settings.player_gamepad_guid,4);
+  if(local_controls)FzeroLocalControlsAssignPlayers(local_controls,launcher_settings.player_src,launcher_settings.player_gamepad_guid,launcher_settings.player_gamepad_instance,4);
   uint64_t local_controls_generation=RtlStateGeneration();
 
   bool sp_release=false;
@@ -2585,6 +2620,13 @@ static int run_game(int argc, char **argv) {
       if (event.type == SDL_KEYDOWN && !event.key.repeat) {
         /* Hotkeys are tested before the quick slots, so a binding on an
          * F-key takes that key from the slot behind it. */
+        if (hotkey_matches(&g_hotkey_fps, SNESRECOMP_SDL_EVENT_KEY(event),
+                           SNESRECOMP_SDL_EVENT_MOD(event))) {
+          g_video.fps_readout=!g_video.fps_readout;
+          snes_osd_set_fps_visible(g_video.fps_readout);
+          if(!FzeroVideoSave(&g_video,kVideoConfig))fprintf(stderr,"[fzero] Unable to save Game FPS choice\n");
+          continue;
+        }
         if (hotkey_matches(&g_hotkey_menu, SNESRECOMP_SDL_EVENT_KEY(event),
                            (Uint16)SNESRECOMP_SDL_EVENT_MOD(event))) {
           if(race_running)continue;
@@ -2693,7 +2735,7 @@ static int run_game(int argc, char **argv) {
       local_two_player=true;debug_server_set_ram(g_snes->ram,0x20000);
       local_controls=FzeroLocalControlsCreate(local_config,false);
       if(!local_controls)Die("Cannot allocate local controls");
-      FzeroLocalControlsAssignPlayers(local_controls,launcher_settings.player_src,launcher_settings.player_gamepad_guid,4);
+      FzeroLocalControlsAssignPlayers(local_controls,launcher_settings.player_src,launcher_settings.player_gamepad_guid,launcher_settings.player_gamepad_instance,4);
       local_controls_generation=RtlStateGeneration();
       if(getenv("FZERO_TEST_LOCAL_UI"))host_report_breadcrumb("Title VS controls ready");
       snes_rewind_configure();SDL_UnlockMutex(g_audio_mutex);
@@ -2999,6 +3041,7 @@ static int run_game(int argc, char **argv) {
       frames++;
       if(g_compare_pause_after_frame){g_compare_pause_after_frame=false;if(!benchmark)paused=1;}
       FzeroClockSimulationDone(&clock);
+      snes_osd_note_frame(); /* Once per logical game tick, including local VS. */
       now = monotonic_seconds();
       if (auto_close_frames > 0 && frames >= auto_close_frames) { running = 0; break; }
     }

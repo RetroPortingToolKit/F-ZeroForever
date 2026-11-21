@@ -3,7 +3,8 @@
 #include "desktop/sdl_compat.h"
 
 /* Own the gameplay handle independently of the launcher's SDL lifetime. */
-void FzeroGamepadConfigure(const char *config, const char *guid, int deadzone);
+/* instance is the transient SDL id + 1 from the current launcher; zero uses the saved model preference. */
+void FzeroGamepadConfigure(const char *config, const char *guid, int deadzone, uint32_t instance);
 void FzeroGamepadRefresh(SDL_GameController **pad);
 void FzeroGamepadEvent(SDL_GameController **pad, const SDL_Event *event);
 uint32_t FzeroGamepadRead(SDL_GameController *pad);

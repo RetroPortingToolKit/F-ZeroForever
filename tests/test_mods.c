@@ -73,7 +73,7 @@ int main(int argc,char **argv) {
   FzeroVideoStock(&s);
   CHECK(p->feature_get(NULL,3,&f) && !strcmp(f.status,"Native resolution"));
   const CpCatalog *catalog = FzeroTracksCatalog();
-  CHECK(p->package_count(NULL) == 6 + FZERO_RULE_COUNT && p->feature_count(NULL) == p->package_count(NULL));
+  CHECK(p->package_count(NULL) == 7 + FZERO_RULE_COUNT && p->feature_count(NULL) == p->package_count(NULL));
   for(int i=0;i<p->feature_count(NULL);++i) {
     RecompLauncherCModPackage package;
     CHECK(p->package_get(NULL,i,&package) && p->feature_get(NULL,i,&f));
@@ -128,6 +128,10 @@ int main(int argc,char **argv) {
         CHECK(!p->feature_enable(NULL,pack.package_id,pack.id,1));
       }
       CHECK(p->feature_enable(NULL,pack.package_id,pack.id,0));continue;
+    }
+    if(!strcmp(pack.id,"game-fps")) {
+      CHECK(!strcmp(pack.package_id,"fzero-fps-readout") && !pack.hidden && !pack.option_count);
+      continue;
     }
     if(!strcmp(pack.id,"local-2p")) {
       CHECK(!strcmp(pack.package_id,"fzero-local-2p") && !strcmp(pack.group,"Game Modes") && pack.option_count==1);
@@ -428,6 +432,29 @@ int main(int argc,char **argv) {
     CHECK(s.gameplay.enabled & (1u<<FZERO_RULE_LEGEND));
     CHECK(p->preset_apply(NULL,"vanilla",&io) && !io.msu1_enabled);
     CHECK(!strcmp(io.msu1_dir,custom ? "my external CGP music" : ""));
+  }
+  /* The Game FPS control is optional and independent of recording/presentation. */
+  FzeroVideoDefaults(&s);
+  p=FzeroModsProvider(&s,"test-mods.ini",false);
+  unsigned ui_controls=0;
+  for(int i=0;i<p->feature_count(NULL);++i) {
+    CHECK(p->feature_get(NULL,i,&f));
+    if(!strcmp(f.package_id,"fzero-fps-readout")) {
+      CHECK(!strcmp(f.name,"Game FPS readout") && !f.enabled && !f.hidden && !f.option_count);
+      CHECK(!strcmp(f.group,"Testing"));ui_controls|=1;
+    }
+    if(!strcmp(f.package_id,"fzero-crash-replay")) {
+      CHECK(f.enabled && !f.hidden && strcmp(f.package_id,"fzero-fps-readout"));ui_controls|=2;
+    }
+  }
+  CHECK(ui_controls==3 && s.crash_replay && !s.fps_readout);
+  CHECK(p->feature_enable(NULL,"fzero-crash-replay","crash-replay",0));
+  s.fps_enabled=true;s.fps=360;
+  for(int on=1;on>=0;--on) {
+    CHECK(p->feature_enable(NULL,"fzero-fps-readout","game-fps",on));
+    CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini"));
+    CHECK(loaded.fps_readout==(on!=0) && !loaded.crash_replay && loaded.fps_enabled && loaded.fps==360);
+    CHECK(!p->feature_option_get(NULL,"fzero-fps-readout","game-fps",0,&option));
   }
   /* Fresh defaults must survive provider normalization and reach the actual
    * launcher toggles; the formerly default-on BS pack cleared rebalances. */

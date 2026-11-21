@@ -78,9 +78,9 @@ static bool local_ui_tick(FzeroLocalControls *controls,SDL_Window *window) {
     /* Native menu input was an ordinary script. From here the virtual pads
      * exclusively drive joining, selection, pause and mode transitions. */
     if(!FzeroReplayConfigurePlayers(NULL,getenv("FZERO_VIEWPORT_SCRIPT"),2))Die("UI validation replay setup failed");
-    int sources[4]={2,2,2,2};char guids[4][40];
-    for(unsigned i=0;i<local_ui_players();++i)SDL_GUIDToString(SDL_GetJoystickGUID(local_ui_pads[i]),guids[i],40);
-    if(!getenv("FZERO_TEST_LOCAL_UI_KEYBOARD"))FzeroLocalControlsAssignPlayers(controls,sources,guids,local_ui_players());
+    int sources[4]={2,2,2,2};char guids[4][40];uint32_t instances[4]={0};
+    for(unsigned i=0;i<local_ui_players();++i) {SDL_GUIDToString(SDL_GetJoystickGUID(local_ui_pads[i]),guids[i],40);instances[i]=SDL_GetJoystickID(local_ui_pads[i])+1;}
+    if(!getenv("FZERO_TEST_LOCAL_UI_KEYBOARD"))FzeroLocalControlsAssignPlayers(controls,sources,guids,instances,local_ui_players());
     local_ui_stage=FzeroVersusPlayers(FzeroLocalControlsConfig(controls))==local_ui_players()?1:12;local_ui_step=0;t=0;local_ui_count_picker=local_ui_stage==12;
   }
   static unsigned reported=~0u;
@@ -92,9 +92,9 @@ static bool local_ui_tick(FzeroLocalControls *controls,SDL_Window *window) {
       if(t==16 || t==17)local_ui_button(0,SDL_GAMEPAD_BUTTON_START,true);
       if(t>20) {
         if(FzeroVersusPlayers(FzeroLocalControlsConfig(controls))!=local_ui_players() || FzeroLocalControlsPage(controls)!=FZERO_LOCAL_MACHINES)Die("UI player-count selection failed");
-        int sources[4]={2,2,2,2};char guids[4][40];
-        for(unsigned i=0;i<local_ui_players();++i)SDL_GUIDToString(SDL_GetJoystickGUID(local_ui_pads[i]),guids[i],40);
-        if(!getenv("FZERO_TEST_LOCAL_UI_KEYBOARD"))FzeroLocalControlsAssignPlayers(controls,sources,guids,local_ui_players());
+        int sources[4]={2,2,2,2};char guids[4][40];uint32_t instances[4]={0};
+        for(unsigned i=0;i<local_ui_players();++i) {SDL_GUIDToString(SDL_GetJoystickGUID(local_ui_pads[i]),guids[i],40);instances[i]=SDL_GetJoystickID(local_ui_pads[i])+1;}
+        if(!getenv("FZERO_TEST_LOCAL_UI_KEYBOARD"))FzeroLocalControlsAssignPlayers(controls,sources,guids,instances,local_ui_players());
         local_ui_stage=1;local_ui_step=0;
       }
       break;
