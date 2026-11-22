@@ -637,6 +637,7 @@ void FzeroDrawPpuFrame(void) {
   }
 
   FzeroVehiclesBeginFrame(g_ppu, s_published_ram);
+  FzeroGhostsBeginFrame(g_ppu, s_published_ram);
   FzeroTracksIntroFrame(g_ppu,s_published_ram,true);
   for (int line = 0; line <= 224; line++) {
     for (uint8_t index = 0; index < s_irq_event_count; index++) {
@@ -686,6 +687,7 @@ void FzeroDrawPpuFrame(void) {
   }
   if(!s_restoring_local_assets && s_output_pixels && !s_viewport.enhanced)
     FzeroTracksOverlay((uint32_t *)s_output_pixels,256,224,s_output_pitch,s_published_ram);
+  FzeroGhostsEndFrame(g_ppu);
   FzeroVehiclesEndFrame(g_ppu);
   FzeroTracksIntroFrame(g_ppu,s_published_ram,false);
 

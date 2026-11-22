@@ -273,6 +273,81 @@ void FzeroRecordsMergeCup(uint8_t records[0x400], const uint8_t previous[0x400],
   records[start + 165] = (uint8_t)sum;
   records[start + 166] = (uint8_t)(sum >> 8);
 }
+/* Twin program records. Practice ghosts alone run otherwise stock content on
+ * the Deluxe program, whose 32 KiB save begins with the stock cartridge's
+ * 512-byte record block unchanged ("FZERO", three leagues, class unlocks).
+ * Each program reads and writes only its own files. It reads its twin's block
+ * and folds those times into what it shows and saves, so changing the ghost
+ * setting never hides a record. A twin file is never created or modified. */
+static char twin_root[96];
+static unsigned twin_size;
+static bool twin_base_merged;
+void FzeroRecordsSetTwin(const char *root, unsigned sram_size) {
+  twin_size = root && snprintf(twin_root, sizeof(twin_root), "%s", root) < (int)sizeof(twin_root)
+                  ? sram_size : 0;
+  twin_base_merged = false;
+}
+static const unsigned league_start[] = {5, 0xac, 0x153};
+static bool league_valid(const uint8_t *records, unsigned cup) {
+  unsigned start = league_start[cup], sum = 0;
+  for (unsigned i = 0; i < 165; ++i) sum += records[start + i];
+  return records[start + 165] == (uint8_t)sum && records[start + 166] == (uint8_t)(sum >> 8);
+}
+static bool twin_read(const uint8_t *key, uint8_t block[0x400]) {
+  if (!twin_size) return false;
+  char hex[65], path[160];
+  long expected = (long)twin_size;
+  if (key) {
+    cp_hash_format(key, hex);
+    snprintf(path, sizeof(path), "%s/courses/%.32s/records.bin", twin_root, hex);
+    expected += 32 + 0x200;
+  } else snprintf(path, sizeof(path), "%s/save.srm", twin_root);
+  FILE *f = fopen(path, "rb");
+  if (!f) return false;
+  uint8_t hash[32];
+  memset(block, 0, 0x400);
+  bool ok = (!key || (fread(hash, 1, 32, f) == 32 && !memcmp(hash, key, 32))) &&
+            fread(block, 1, 0x200, f) == 0x200 && !fseek(f, 0, SEEK_END) && ftell(f) == expected;
+  fclose(f);
+  /* A base save the game has not initialized carries no records. */
+  return ok && (key || !memcmp(block, "FZERO", 5));
+}
+bool FzeroRecordsMergeTwin(const uint8_t *key, uint8_t records[0x400]) {
+  uint8_t other[0x400];
+  if (!twin_read(key, other)) return false;
+  bool changed = false;
+  for (unsigned cup = 0; cup < 3; ++cup) {
+    if (!league_valid(other, cup) || !league_valid(records, cup)) continue;
+    uint8_t before[167];
+    memcpy(before, records + league_start[cup], sizeof(before));
+    FzeroRecordsMergeCup(records, other, cup);
+    changed |= memcmp(before, records + league_start[cup], sizeof(before)) != 0;
+  }
+  /* $70:01FA holds the unlocked classes in both nibbles; $02:C569 clears a
+   * byte whose nibbles differ or use bit 3. Unlocks earned in either program
+   * count in both. Course-keyed files inherit this byte from the base save. */
+  uint8_t own = records[0x1fa], theirs = other[0x1fa];
+  if (!key && own >> 4 == (own & 15) && theirs >> 4 == (theirs & 15) && !((own | theirs) & 8)) {
+    uint8_t merged = (own | theirs) & 7;
+    records[0x1fa] = (uint8_t)(merged | merged << 4);
+    changed |= records[0x1fa] != own;
+  }
+  return changed;
+}
+void FzeroRecordsMergeTwinBase(void) {
+  /* Once per session, after the game has validated or initialized its save
+   * and while the base context is the live one. */
+  if (twin_base_merged || !twin_size || state.external || state.view || g_sram_size < 0x200 ||
+      memcmp(g_sram, "FZERO", 5))
+    return;
+  twin_base_merged = true;
+  uint8_t records[0x400] = {0};
+  memcpy(records, g_sram, 0x200);
+  if (!FzeroRecordsMergeTwin(NULL, records)) return;
+  memcpy(g_sram, records, 0x200);
+  memcpy(g_ram + 0x14800, g_sram, 0x200);
+  fprintf(stderr, "[records] merged times from %s\n", twin_root);
+}
 size_t FzeroTracksSaveStateSize(void) {
   return sizeof(state);
 }

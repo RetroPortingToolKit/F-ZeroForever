@@ -349,6 +349,10 @@ public final class LauncherActivity extends Activity {
     toggle("Original-car rebalances",
            "CGP handling, boosts and exhaust for the four original machines.",
            "CGPStockRebalance", "15", "15");
+    toggle("Practice ghosts",
+           "Save a ghost after a Practice race and race it as your rival. " +
+           "Works with any cars and courses. Turn off to remove ghosts.",
+           "PracticeGhosts", "1", "1");
     toggle("Always show Records",
            "Keep Records available before setting your first time.",
            "AlwaysShowRecords", "1", "1");

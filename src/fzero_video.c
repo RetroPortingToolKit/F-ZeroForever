@@ -18,7 +18,7 @@ void FzeroVideoDefaults(FzeroVideoSettings *s) {
   *s = (FzeroVideoSettings){.enhanced = true, .aspect = FZERO_ASPECT_FIT,
                             .fps = 0, .fps_enabled = true, .local_two_player = true, .local_players = 2,
                             .hd_mode7 = true, .hd_scale = 4, .hd_supersample = 1, .diagnostics = false, .crash_replay = true,
-                            .gameplay = {.enabled=FZERO_RULE_DEFAULT_MASK, .tuning=2, .boost=2, .exhaust=2, .vehicle_packs=7, .stock_rebalance=15, .always_records=true}};
+                            .gameplay = {.enabled=FZERO_RULE_DEFAULT_MASK, .tuning=2, .boost=2, .exhaust=2, .vehicle_packs=7, .stock_rebalance=15, .always_records=true, .practice_ghosts=true}};
 }
 
 void FzeroVideoStock(FzeroVideoSettings *s) {
@@ -181,6 +181,9 @@ bool FzeroVideoLoad(FzeroVideoSettings *s, const char *path) {
     } else if (!strcmp(key,"AlwaysShowRecords")) {
       if (!strcmp(value,"0") || !strcmp(value,"1")) s->gameplay.always_records=value[0]=='1';
       else valid=false;
+    } else if (!strcmp(key,"PracticeGhosts")) {
+      if (!strcmp(value,"0") || !strcmp(value,"1")) s->gameplay.practice_ghosts=value[0]=='1';
+      else valid=false;
     } else if (!strcmp(key,"CGPRules")) {
       unsigned bits;
       if (sscanf(value,"%u%c",&bits,&tail)==1 && !(bits >> FZERO_RULE_COUNT)) s->gameplay.enabled=bits;
@@ -239,6 +242,7 @@ bool FzeroVideoSave(const FzeroVideoSettings *s, const char *path) {
                     s->gameplay.vehicle_packs ? 7u : 0u,s->gameplay.stock_rebalance ? 15u : 0u,
                     s->hd_mode7, s->hd_scale >= FZERO_HD_SCALE_MIN && s->hd_scale <= FZERO_GPU_HD_SCALE_MAX ? s->hd_scale : (unsigned)kSnesHdDefaultScale, s->hd_supersample>=1 && s->hd_supersample<=4?s->hd_supersample:1, s->diagnostics) > 0;
   if (fprintf(f, "AlwaysShowRecords=%d\n", s->gameplay.always_records) < 0) ok = false;
+  if (fprintf(f, "PracticeGhosts=%d\n", s->gameplay.practice_ghosts) < 0) ok = false;
   if (fprintf(f, "CrashReplay=%d\n", s->crash_replay) < 0) ok = false;
   if (fprintf(f,"FpsReadout=%d\n",s->fps_readout)<0)ok=false;
   if (fprintf(f,"LocalTwoPlayer=%d\n",s->local_two_player)<0)ok=false;

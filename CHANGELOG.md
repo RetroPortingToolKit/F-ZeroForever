@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0 - Practice ghosts for every setup
+
+- Add **Mods > Practice ghosts**, on by default. Recording, **Save Ghost?** and
+  the **Ghost** rival no longer require a Satellaview or CGP vehicle mod, and
+  now work with the **Vanilla** preset and with course packs on original cars.
+  Presets leave this switch alone.
+- Turn it off to remove the Ghost rival and the Save Ghost prompt from any
+  setup. Saved ghosts are kept.
+- Original-only setups keep their records and unlocked classes with ghosts on
+  or off. Their save states are separate for each setting. See
+  [Practice ghosts](MODS.md#practice-ghosts).
+
 ## 2.1.1 - Controller ownership and Game FPS
 
 - Keep each connected controller assigned to one player. Selecting it for

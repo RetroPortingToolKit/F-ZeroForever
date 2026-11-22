@@ -73,7 +73,7 @@ int main(int argc,char **argv) {
   FzeroVideoStock(&s);
   CHECK(p->feature_get(NULL,3,&f) && !strcmp(f.status,"Native resolution"));
   const CpCatalog *catalog = FzeroTracksCatalog();
-  CHECK(p->package_count(NULL) == 7 + FZERO_RULE_COUNT && p->feature_count(NULL) == p->package_count(NULL));
+  CHECK(p->package_count(NULL) == 8 + FZERO_RULE_COUNT && p->feature_count(NULL) == p->package_count(NULL));
   for(int i=0;i<p->feature_count(NULL);++i) {
     RecompLauncherCModPackage package;
     CHECK(p->package_get(NULL,i,&package) && p->feature_get(NULL,i,&f));
@@ -154,6 +154,12 @@ int main(int argc,char **argv) {
       CHECK(p->feature_enable(NULL,pack.package_id,pack.id,0));
       continue;
     }
+    if (!strcmp(pack.id, "practice-ghosts")) {
+      CHECK(!strcmp(pack.package_id, "fzero-practice-ghosts") && !pack.option_count);
+      CHECK(!strcmp(pack.group, "Game Modes") && pack.enabled == (int)s.gameplay.practice_ghosts);
+      CHECK(!p->feature_option_get(NULL, pack.package_id, pack.id, 0, &option));
+      continue;
+    }
     if (!strcmp(pack.id, "crash-replay")) {
       CHECK(!strcmp(pack.package_id, "fzero-crash-replay") && !pack.option_count);
       CHECK(p->feature_enable(NULL, pack.package_id, pack.id, 1) && s.crash_replay);
@@ -219,6 +225,22 @@ int main(int argc,char **argv) {
   CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini") && loaded.gameplay.always_records);
   CHECK(p->feature_enable(NULL,"fzero-always-records","always-records",0));
   CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini") && !loaded.gameplay.always_records);
+  /* Practice ghosts: one standalone switch, no vehicle or course side effects. */
+  {
+    RecompLauncherCModFeature ghosts; bool listed=false;
+    for (int i=0; i<p->feature_count(NULL); ++i)
+      if (p->feature_get(NULL,i,&ghosts) && !strcmp(ghosts.package_id,"fzero-practice-ghosts")) { listed=true; break; }
+    CHECK(listed && !strcmp(ghosts.id,"practice-ghosts") && !strcmp(ghosts.name,"Practice ghosts"));
+    CHECK(!ghosts.option_count && !ghosts.hidden && ghosts.enabled==(int)s.gameplay.practice_ghosts);
+    FzeroVideoSettings before=s;
+    CHECK(p->feature_enable(NULL,"fzero-practice-ghosts","practice-ghosts",0) && !s.gameplay.practice_ghosts);
+    CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini") && !loaded.gameplay.practice_ghosts);
+    CHECK(p->feature_enable(NULL,"fzero-practice-ghosts","practice-ghosts",1) && s.gameplay.practice_ghosts);
+    CHECK(p->commit(NULL,NULL) && FzeroVideoLoad(&loaded,"test-mods.ini") && loaded.gameplay.practice_ghosts);
+    before.gameplay.practice_ghosts=s.gameplay.practice_ghosts;
+    CHECK(s.bs_deluxe==before.bs_deluxe && s.bs_tracks==before.bs_tracks &&
+          !memcmp(&s.gameplay,&before.gameplay,sizeof(s.gameplay)));
+  }
   CHECK(!p->feature_enable(NULL,"cgp-credits","rules",1));
   CHECK(!p->feature_enable(NULL,"cgp-tuning","rules",1));
   CHECK(!p->feature_enable(NULL,"cgp-boost","rules",1));
@@ -383,6 +405,7 @@ int main(int argc,char **argv) {
   CHECK(p->preset_count(NULL)==3);
   for (unsigned extra=0; extra<4; ++extra) {
     s.gameplay.always_records=(extra&1)!=0;
+    s.gameplay.practice_ghosts=(extra&2)!=0;
     if (max) CHECK(FzeroTracksEnable(max,(extra&1)!=0));
     if (bower) CHECK(FzeroTracksEnable(bower,(extra&2)!=0));
     s.enhanced=true;s.fps_enabled=true;s.fps=144;s.hd_mode7=true;s.hd_scale=3;s.diagnostics=true;
@@ -403,6 +426,7 @@ int main(int argc,char **argv) {
       CHECK(s.gameplay.stock_rebalance==(pick==2?15u:0u));
       CHECK(s.gameplay.enabled==(pick==2?FZERO_RULE_SELECTABLE_MASK:0u));
       CHECK(s.gameplay.always_records==((extra&1)!=0));
+      CHECK(s.gameplay.practice_ghosts==((extra&2)!=0)); /* Every preset leaves ghosts alone. */
       CHECK(io.msu1_enabled==(pick==2));
       CHECK(FzeroTracksEnabled(cgp)==(pick==2));
       CHECK(FzeroTracksTitleEnabled()==(pick==2));

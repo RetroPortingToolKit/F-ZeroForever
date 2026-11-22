@@ -304,6 +304,8 @@ run_instructions = {
     "See MODS.md for details.\n\n"
     "Mods > Always show Records defaults on, making Records available before setting a time.\n\n"
     "Records shows all enabled cars by default; X/Y on its overview filters by car.\n"
+    "Mods > Practice ghosts defaults on and works with every setup, including the Vanilla preset.\n"
+    "Turn it off to remove the Ghost rival and the Save Ghost prompt. See MODS.md.\n"
     "Practice: L/R on the league screen chooses the ghost's car. Automatic prefers your current car.\n"
     "Selecting another car's ghost preserves your saved recording; Save Ghost writes your new recording normally.\n\n"
     "Mods > Lap voice callouts is optional and requires your own boost-power and final-lap WAV files.\n"

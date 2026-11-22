@@ -28,6 +28,10 @@ static const CpPack *active_pack;
 static const CpCup *active_cup;
 static unsigned menu_index;
 static uint8_t identity[32];
+/* The stock cartridge's rule signature while only Practice ghosts select the
+ * Deluxe program; it names the record namespace both programs share. */
+static uint8_t stock_signature[32];
+static bool stock_signed;
 static uint16_t menu_last_input;
 static char save_namespace[96];
 const char *FzeroTracksSaveNamespace(void) { return save_namespace; }
@@ -163,7 +167,9 @@ static bool previous_practice(unsigned n, const char *vehicle, uint8_t records[0
 }
 void FzeroTracksReadRecords(unsigned n, const char *vehicle, uint8_t records[0x400]) {
   uint8_t key[32], previous[0x400];
-  FzeroRecordsRead(FzeroTracksRecordKey(n, vehicle, key) ? key : NULL, records);
+  bool keyed = FzeroTracksRecordKey(n, vehicle, key);
+  FzeroRecordsRead(keyed ? key : NULL, records);
+  FzeroRecordsMergeTwin(keyed ? key : NULL, records);
   const CpCup *cup = FzeroTracksRuntimeCup(n, NULL);
   if (cup && previous_practice(n, vehicle, previous))
     FzeroRecordsMergeCup(records, previous, cup->slot);
@@ -267,7 +273,18 @@ bool FzeroTracksPrepare(uint8_t **rom, size_t *size, bool deluxe, const char *de
   }
   (void)deluxe;
   if (!FzeroVehiclesLoad(*rom,*size,error,sizeof(error))) { FzeroTracksReport(error); return false; }
-  if (!FzeroDeluxePrepare(rom, size, FzeroBsCars() || FzeroBsTracks() || FzeroVehiclesActive(), deluxe_path))
+  /* Practice ghosts live in the Deluxe program, independently of its cars
+   * and courses, which stay hidden unless their own mods are enabled. With
+   * only ghosts added, records belong beside the stock cartridge's: sign the
+   * rules exactly as that cartridge would before changing program. */
+  stock_signed = false;
+  if (FzeroGhostOnlyProgram() && FzeroGameplaySettingsCurrent()->enabled) {
+    if (!FzeroDeluxePrepare(rom, size, false, NULL)) return false;
+    stock_signed = FzeroGameplayStockSignature(*rom, *size, stock_signature);
+    if (!stock_signed) { FzeroTracksReport(FzeroGameplayError()); return false; }
+  }
+  if (!FzeroDeluxePrepare(rom, size, FzeroBsCars() || FzeroBsTracks() || FzeroVehiclesActive() ||
+                          FzeroPracticeGhosts(), deluxe_path))
     return false;
   if (!FzeroVehiclesPrepare(rom,size,error,sizeof(error))) { FzeroTracksReport(error); return false; }
   if (FzeroTracksStateActive()) {
@@ -351,13 +368,29 @@ bool FzeroTracksPrepare(uint8_t **rom, size_t *size, bool deluxe, const char *de
 }
 bool FzeroTracksSelectSaveRoot(void) {
   size_t original_root_length=strlen(RtlSaveRoot());
-  if (!FzeroDeluxeSelectSaveRoot())
+  /* Stock content with only Practice ghosts added keeps its saves in a
+   * "ghosts" folder inside the stock cartridge's own namespace, not with the
+   * Deluxe cars and courses. The two programs are record twins. */
+  bool ghost_only = FzeroDeluxeActive() && FzeroGhostOnlyProgram();
+  if (!ghost_only && !FzeroDeluxeSelectSaveRoot())
     return false;
   if (FzeroGameplaySettingsCurrent()->enabled || FzeroVehiclesActive()) {
-    char hex[65],root[96]; cp_hash_format(FzeroGameplaySignature(),hex);
+    if (ghost_only && !stock_signed) return false;
+    char hex[65],root[96]; cp_hash_format(ghost_only ? stock_signature : FzeroGameplaySignature(),hex);
     if(snprintf(root,sizeof(root),"%s/rules-%.16s",RtlSaveRoot(),hex)>=(int)sizeof(root))return false;
     RtlEnsureSaveDir();RtlSetSaveRoot(root);RtlEnsureSaveDir();
   }
+  char twin[96];
+  if (ghost_only) {
+    char root[96];
+    snprintf(twin,sizeof(twin),"%s",RtlSaveRoot());
+    if(snprintf(root,sizeof(root),"%s/ghosts",twin)>=(int)sizeof(root))return false;
+    RtlEnsureSaveDir();RtlSetSaveRoot(root);RtlEnsureSaveDir();
+    fprintf(stderr,"[ghosts] saves: %s/save.srm\n",root);
+    FzeroRecordsSetTwin(twin,0x800);
+  } else if (!FzeroDeluxeActive() && snprintf(twin,sizeof(twin),"%s/ghosts",RtlSaveRoot())<(int)sizeof(twin))
+    FzeroRecordsSetTwin(twin,0x8000);
+  else FzeroRecordsSetTwin(NULL,0);
   if (FzeroTracksActive() && strlen(RtlSaveRoot()) + 41 >= 96) {
     FzeroTracksReport(
         "Save root is too long for course records; use a shorter SNESRECOMP_SAVE_ROOT");
@@ -435,8 +468,10 @@ void FzeroTracksMenuTick(uint8_t *ram, uint32_t previous_scene) {
       ram[0x56] == 3 && (previous_scene >> 16) != 3)
     FzeroTracksRuntimeSelect(0);
   FzeroRecordsTick();
-  if (g_ram[0x54] == 0 && !FzeroRecordsViewState())
+  if (g_ram[0x54] == 0 && !FzeroRecordsViewState()) {
     FzeroTracksRecordsSelect(NULL);
+    FzeroRecordsMergeTwinBase();
+  }
   current_course();
 }
 uint16_t FzeroTracksMenuInput(uint16_t input, const uint8_t *ram) {
@@ -505,6 +540,12 @@ void FzeroTracksRefreshCourse(void) {
       uint8_t previous[0x400];
       if (previous_practice(menu_index, FzeroVehicleIdentity(), previous)) {
         FzeroRecordsMergeCup(g_sram, previous, active_cup->slot);
+        memcpy(g_ram + 0x14800, g_sram, 0x200);
+      }
+      memset(previous, 0, sizeof(previous));
+      memcpy(previous, g_sram, 0x200);
+      if (FzeroRecordsMergeTwin(key, previous)) {
+        memcpy(g_sram, previous, 0x200);
         memcpy(g_ram + 0x14800, g_sram, 0x200);
       }
       if (FzeroDeluxeActive() && g_ram[0x54] && g_ram[0x58] && g_ram[0x14c8a] == 0xfe) {

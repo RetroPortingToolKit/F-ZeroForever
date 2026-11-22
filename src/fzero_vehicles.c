@@ -1066,6 +1066,9 @@ static void menu_hook(CpuState *cpu, uint32_t pc) {
       index = candidate < 8 ? g_ram[RIVAL_FIRST] + candidate
                            : candidate == 0xfe ? count + 1 : count;
     }
+    if (index > count && !FzeroPracticeGhosts())
+      /* Same list without its Ghost entry; see FzeroGhostlessRival. */
+      index = FzeroGhostlessRival(old, buttons, 0) == 0xff ? count : 0;
     if (index < count) {
       while (index < g_ram[RIVAL_FIRST]) g_ram[RIVAL_FIRST] -= 2;
       while (index >= g_ram[RIVAL_FIRST] + 8u) g_ram[RIVAL_FIRST] += 2;

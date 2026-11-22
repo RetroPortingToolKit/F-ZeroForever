@@ -10,6 +10,7 @@
 #include "fzero_vehicles.h"
 #include "sha256.h"
 #include "snes/interp_bridge.h"
+#include "snes/ppu.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,7 @@ static FzeroGameplaySettings settings;
 static bool cars, tracks;
 static char error[192];
 static uint8_t signature[32];
+static bool signing_stock;
 static const DispatchEntry patched_program[1] = {{0}};
 static uint8_t turn[4][30], acceleration[4][29];
 static uint8_t native_frequency[45];
@@ -28,7 +30,17 @@ bool FzeroRuleEnabled(FzeroRule r) {
 }
 bool FzeroBsCars(void) { return cars; }
 bool FzeroBsTracks(void) { return tracks; }
-bool FzeroGameplayActive(void) { return settings.enabled || cars != tracks || settings.vehicle_packs || settings.stock_rebalance; }
+bool FzeroPracticeGhosts(void) { return settings.practice_ghosts; }
+static bool deluxe_content(void) {
+  return cars || tracks || settings.vehicle_packs || settings.stock_rebalance;
+}
+bool FzeroGhostOnlyProgram(void) { return settings.practice_ghosts && !deluxe_content(); }
+/* The Deluxe program lists its BS leagues natively. Whenever it runs without
+ * them, the catalog menu owns league selection; ghosts alone are such a case. */
+bool FzeroGameplayActive(void) {
+  return settings.enabled || cars != tracks || settings.vehicle_packs || settings.stock_rebalance ||
+         (settings.practice_ghosts && !tracks);
+}
 const FzeroGameplaySettings *FzeroGameplaySettingsCurrent(void) {
   return &settings;
 }
@@ -77,6 +89,11 @@ void FzeroGameplayHeadless(bool deluxe) {
     FzeroTrackLoaderEnable(false);
   if (!getenv("FZERO_TEST_LEGACY_PROFILES")) s.enabled &= ~7u;
   FzeroGameplayConfigure(&s, vehicles, courses);
+  /* Captures keep the ghosts their content already had and never change
+   * program on their own. FZERO_GHOSTS=1 selects the Deluxe program for
+   * otherwise stock content; FZERO_GHOSTS=0 removes ghosts from any content. */
+  env = getenv("FZERO_GHOSTS");
+  settings.practice_ghosts = env ? atoi(env) != 0 : deluxe_content();
 }
 static unsigned r16(unsigned a) {
   return g_ram[a] | (unsigned)g_ram[a + 1] << 8;
@@ -84,6 +101,37 @@ static unsigned r16(unsigned a) {
 static void w16(unsigned a, unsigned v) {
   g_ram[a] = (uint8_t)v;
   g_ram[a + 1] = (uint8_t)(v >> 8);
+}
+unsigned FzeroGhostlessRival(unsigned current, unsigned buttons, unsigned first) {
+  /* The native Practice list ends ... cars, No Rival ($FF), Ghost ($FE).
+   * Without ghosts, Select wraps from No Rival to the first car and Down
+   * stops there. A cursor restored on Ghost moves up to No Rival. */
+  if (current == 0xff && (buttons & 0x2f00) == 0x2000)
+    return first;
+  return current == 0xfe ? 0xff : current;
+}
+/* The Deluxe rival panel is a static tilemap. Its Ghost row is the eleven
+ * cells that $1E:D0A6 rewrites from buffer $7F:AD62, VRAM word $16B1, in the
+ * panel font at tile $100: "GH"OST or, for a broadcast ghost, "ST"AFF GHOST. */
+enum { GHOST_ROW = 0x16b1, GHOST_ROW_CELLS = 11 };
+static uint16_t ghost_row[GHOST_ROW_CELLS];
+static bool ghost_row_hidden;
+void FzeroGhostsBeginFrame(Ppu *ppu, const uint8_t *ram) {
+  ghost_row_hidden = false;
+  if (!FzeroDeluxeActive() || settings.practice_ghosts || ram[0x54] != 1 || !ram[0x58])
+    return;
+  unsigned first = ppu->vram[GHOST_ROW] & 0x3ff, second = ppu->vram[GHOST_ROW + 1] & 0x3ff;
+  if (!(first == 0x14c && second == 0x14e) && !(first == 0x164 && second == 0x166))
+    return;
+  memcpy(ghost_row, ppu->vram + GHOST_ROW, sizeof(ghost_row));
+  for (unsigned i = 0; i < GHOST_ROW_CELLS; ++i)
+    ppu->vram[GHOST_ROW + i] = 0x2000;
+  ghost_row_hidden = true;
+}
+void FzeroGhostsEndFrame(Ppu *ppu) {
+  if (ghost_row_hidden)
+    memcpy(ppu->vram + GHOST_ROW, ghost_row, sizeof(ghost_row));
+  ghost_row_hidden = false;
 }
 static void accum(CpuState *cpu, unsigned value) {
   cpu_write_a_m(cpu, (uint16_t)value);
@@ -233,12 +281,29 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
   interp_bridge_set_scheduler_aot_policy(0);
   if (!FzeroMsuApplyConfigured(rom,size)) { snprintf(error,sizeof(error),"%.190s",FzeroMsuError());return false; }
   sign_program(*rom, *size);
-  fprintf(
-      stderr,
-      "[cgp-rules] enabled=%08x profiles=%u,%u,%u bs-cars=%d bs-tracks=%d\n",
-      settings.enabled, settings.tuning + 1, settings.boost + 1,
-      settings.exhaust + 1, cars, tracks);
+  if (!signing_stock)
+    fprintf(
+        stderr,
+        "[cgp-rules] enabled=%08x profiles=%u,%u,%u bs-cars=%d bs-tracks=%d\n",
+        settings.enabled, settings.tuning + 1, settings.boost + 1,
+        settings.exhaust + 1, cars, tracks);
   return true;
+}
+bool FzeroGameplayStockSignature(const uint8_t *rom, size_t size, uint8_t result[32]) {
+  uint8_t *copy = malloc(size), live[32];
+  if (!copy) {
+    snprintf(error, sizeof(error), "Cannot allocate stock rule signature");
+    return false;
+  }
+  memcpy(copy, rom, size);
+  memcpy(live, signature, sizeof(live));
+  signing_stock = true;
+  bool ok = FzeroGameplayPrepare(&copy, &size);
+  signing_stock = false;
+  if (ok) memcpy(result, signature, 32);
+  memcpy(signature, live, sizeof(live));
+  free(copy);
+  return ok;
 }
 static unsigned music_course(void) {
   const CpPack *pack = NULL;
@@ -369,6 +434,22 @@ static void rule_hook(CpuState *cpu, uint32_t pc) {
   case 0x1ed04f:
     if (!cars && (cpu->A & 255) < 8)
       accum(cpu, cpu->A & 3);
+    if (!settings.practice_ghosts && (cpu->A & 255) == 0xfe)
+      accum(cpu, FzeroGhostlessRival(g_ram[0x14c8a], r16(0x67), 0));
+    break;
+  case 0x1eb2e6:
+    /* Race setup with ghosts off: no recording, playback or authored ghost,
+     * so the results screen never offers Save Ghost. Resume at the routine's
+     * own no-ghost exit, after the PLP that pairs with the skipped PHP. */
+    g_ram[0x14ca0] = g_ram[0x14ca1] = 0;
+    if (g_ram[0xcf2] == 0xfe)
+      g_ram[0xcf2] = 0xff;
+    interp_bridge_pre_opcode_redirect(0x1eb413);
+    break;
+  case 0x1ec014:
+    /* Results screen: "recording" is what brings up Save Ghost. A snapshot
+     * taken with ghosts on may still carry it into a ghostless session. */
+    g_ram[0x14ca0] &= (uint8_t)~4u;
     break;
   case 0x00b890: {
     if (!effective_rule(FZERO_RULE_DMAG) && !FzeroRuleEnabled(FZERO_RULE_TUNING) && !FzeroVehiclesActive()) break;
@@ -494,9 +575,13 @@ void FzeroGameplayInstallHooks(void) {
   class_hold = 0;
   if (FzeroDeluxeActive() && !tracks)
     interp_bridge_set_pre_opcode_hook(0x1eb805, rule_hook);
-  if (FzeroDeluxeActive() && !cars) {
+  if (FzeroDeluxeActive() && !cars)
     interp_bridge_set_pre_opcode_hook(0x1ec740, rule_hook);
+  if (FzeroDeluxeActive() && (!cars || !settings.practice_ghosts))
     interp_bridge_set_pre_opcode_hook(0x1ed04f, rule_hook);
+  if (FzeroDeluxeActive() && !settings.practice_ghosts) {
+    interp_bridge_set_pre_opcode_hook(0x1eb2e6, rule_hook);
+    interp_bridge_set_pre_opcode_hook(0x1ec014, rule_hook);
   }
   if (has_fall_down()) {
     interp_bridge_set_pre_opcode_hook(0x008976, rule_hook);
