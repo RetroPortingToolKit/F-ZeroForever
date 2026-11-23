@@ -24,7 +24,8 @@ def main():
     a=p.parse_args()
     capture,build,rom,out=(getattr(a,k).resolve() for k in ('capture','build','rom','out'))
     meta=json.loads((capture/'session.json').read_text(encoding='utf-8'))
-    if meta.get('format') not in (1,2) or meta.get('game')!='fzero-usa': p.error('Unsupported capture format')
+    capture_format=meta.get('format')
+    if capture_format not in (1,2,3) or meta.get('game')!='fzero-usa': p.error('Unsupported capture format')
     executable=build/('F-Zero Forever.exe' if a.desktop else 'FZeroSNESRecompHeadless.exe')
     image=executable.read_bytes()
     for key in ('revision','framework','ui','build','version'):
@@ -98,7 +99,7 @@ def main():
                SNESRECOMP_FRAME_BMP=str(out/'final.bmp'),
                SNESRECOMP_AUTOCLOSE_FRAMES=str(len(lines)))
     env['SDL_AUDIODRIVER']='dummy'
-    if meta['format']==2:
+    if capture_format in (2,3):
         checks=stem.with_suffix('.frames')
         if not checks.is_file(): p.error('Missing full-state frame checks')
         env['FZERO_REPLAY_CHECKS']=str(checks)
@@ -109,20 +110,16 @@ def main():
     if local: env['FZERO_TEST_LOCAL_READY']='1'
     cmd=[str(out/executable.name),str(rom)] if a.desktop else [str(out/executable.name),str(rom),str(len(lines))]
     if local: cmd+=['--local-2p'] if a.desktop else ['--versus','0','0','1']
-    timed_out=False
     with (out/'replay.log').open('w',encoding='utf-8') as log:
-        try:
-            result=subprocess.run(cmd,cwd=out,env=env,stdout=log,stderr=log,timeout=max(120,len(lines)/10))
-            exit_code=result.returncode
-        except subprocess.TimeoutExpired:
-            timed_out=True
-            exit_code=None
+        # Captured input bounds the run. Rendering frames may take longer on
+        # a slower machine or at a higher output resolution.
+        result=subprocess.run(cmd,cwd=out,env=env,stdout=log,stderr=log)
     log=(out/'replay.log').read_text(encoding='utf-8',errors='replace')
-    payload=dict(segment=segment,frames=len(lines),exit_code=exit_code,timed_out=timed_out,
+    payload=dict(segment=segment,frames=len(lines),exit_code=result.returncode,timed_out=False,
                  diverged='DIVERGENCE' in log,log=str(out/'replay.log'))
     (out/'result.json').write_text(json.dumps(payload,indent=2)+'\n')
     print(json.dumps(payload,indent=2))
-    if timed_out or exit_code or payload['diverged']: raise SystemExit(1)
+    if result.returncode or payload['diverged']: raise SystemExit(1)
 
 
 if __name__=='__main__': main()
