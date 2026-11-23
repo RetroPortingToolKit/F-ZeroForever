@@ -462,5 +462,5 @@ else:
                 z.write(path, path.relative_to(stage.parent))
 with archive.open("rb") as archive_file:
     digest = hashlib.file_digest(archive_file, "sha256").hexdigest()
-Path(str(archive) + ".sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")
+Path(str(archive) + ".sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii", newline="\n")
 print(f"{archive}\nSHA256 {digest}\nSource {commit}")
