@@ -8,17 +8,20 @@ cd FZeroSNESRecomp
 bash tools/bootstrap.sh
 ```
 
-Put your own USA ROM at `fzero.sfc`, then generate the recompiled source:
+Every platform build requires two local inputs.
+
+- A clean **F-Zero (USA)** ROM at `fzero.sfc` in the repository root.
+- The complete **BS F-Zero Deluxe v1.1 patch ZIP**. Download the ZIP from the
+  [authors’ Deluxe v1.1 release](https://archive.org/details/bs_f-zero_deluxe_v1.1).
+  It contains patches for the
+  retail ROM and the Deluxe content files.
+
+Generate both native modules from the repository root before running a platform
+build script. Change the ZIP path if you downloaded it elsewhere.
 
 ```bash
 bash tools/regen.sh
-```
-
-BS F-Zero Deluxe is built into every release. Generate its native module once
-from the upstream Deluxe 1.1 archive (also your own copy):
-
-```bash
-python tools/regen_bs_deluxe.py --archive "BS F-Zero Deluxe.zip"
+python tools/regen_bs_deluxe.py --archive "bs_f-zero_deluxe_v1.1.zip"
 ```
 
 Local ROMs, generated files, saves, captures, and builds are ignored by git.

@@ -152,10 +152,15 @@ cd FZeroSNESRecomp
 bash tools/bootstrap.sh
 ```
 
-With the build dependencies installed, place your legally obtained USA ROM at `fzero.sfc` in the repository root, then generate and build:
+Source builds require a clean **F-Zero (USA)** ROM at `fzero.sfc` and the upstream
+**BS F-Zero Deluxe v1.1 patch ZIP**. Use the complete ZIP from the authors’
+[Deluxe v1.1 release](https://archive.org/details/bs_f-zero_deluxe_v1.1).
+
+Generate both native modules before running a platform build script.
 
 ```bash
 bash tools/regen.sh
+python tools/regen_bs_deluxe.py --archive "bs_f-zero_deluxe_v1.1.zip"
 ```
 
 Then build and test with your platform's script:
