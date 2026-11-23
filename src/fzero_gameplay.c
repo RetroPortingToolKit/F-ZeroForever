@@ -627,11 +627,17 @@ uint16_t FzeroGameplayMenuInput(uint16_t input, const uint8_t *ram) {
   return input;
 }
 
-void FzeroGameplayBuildVehicleProfile(uint8_t *image,unsigned group) {
-  if(!image || group<1 || group>3)return;
-  unsigned indices[]={group-1,group+2,group+5};
-  for(unsigned n=0;n<3;++n) {
-    const RulePatch *p=&rule_patches[0][indices[n]];
-    for(unsigned i=0;i<p->count;++i)memcpy(image+p->writes[i].offset,p->writes[i].data,p->writes[i].size);
+void FzeroGameplayVehicleData(unsigned group, unsigned offset, uint8_t *data, size_t size) {
+  const unsigned indices[] = {group - 1, group + 2, group + 5};
+  for (unsigned n = 0; n < sizeof(indices) / sizeof(*indices); ++n) {
+    const RulePatch *patch = &rule_patches[0][indices[n]];
+    for (unsigned i = 0; i < patch->count; ++i) {
+      const RuleWrite *write = &patch->writes[i];
+      unsigned first = write->offset > offset ? write->offset : offset;
+      unsigned end = write->offset + write->size;
+      if (end > offset + size) end = (unsigned)(offset + size);
+      if (first < end)
+        memcpy(data + (first - offset), write->data + (first - write->offset), end - first);
+    }
   }
 }

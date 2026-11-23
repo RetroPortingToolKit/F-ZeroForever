@@ -3,6 +3,7 @@
 #include "content_pack.h"
 #include "cpu_state.h"
 #include "fzero_gameplay.h"
+#include "fzero_machine.h"
 #include "fzero_records.h"
 #include "sha256.h"
 #include "snes/cart.h"
@@ -38,7 +39,14 @@ static const Vehicle vehicles[] = {{"blue-falcon", "BLUE FALCON", 0, 0},
 static const unsigned cohort[4][4] = {
     {0, 1, 2, 3}, {4, 5, 6, 7}, {0, 8, 2, 9}, {10, 1, 11, 3}};
 static const unsigned menu_rows[] = {0, 2, 1, 3};
-static uint8_t *stock_image, *art[3], *images[4];
+static uint8_t *stock_image, *images[4];
+static FzeroVehicleResources *art[3];
+static FzeroVehicleResources *load_vehicle_resources(const uint8_t *stock, size_t size,
+                                                    unsigned group, char *error, size_t cap);
+static const uint8_t *vehicle_resource(const FzeroVehicleResources *resources, unsigned offset);
+static const uint8_t *vehicle_art(unsigned group, unsigned offset) {
+  return group ? vehicle_resource(art[group - 1], offset) : stock_image + offset;
+}
 static FzeroGameplaySettings choices, image_settings[4];
 static unsigned roster[12], count, selected_image = 99;
 static void menu_resources(bool upload);
@@ -94,9 +102,8 @@ static unsigned group_for(unsigned id) {
 bool FzeroVehicleRecordIcon(unsigned index, uint32_t pixels[16 * 16]) {
   if (index >= count || !pixels) return false;
   unsigned id = roster[index], group = group_for(id), slot = vehicles[id].slot;
-  const uint8_t *source = group ? art[group - 1] : stock_image;
-  const uint8_t *graphic = source + 0x40000 + slot * 0x8000 + 0x6aa0;
-  const uint8_t *palette = source + 0x7cd80 + slot * 32;
+  const uint8_t *graphic = vehicle_art(group, 0x40000 + slot * 0x8000 + 0x6aa0);
+  const uint8_t *palette = vehicle_art(group, 0x7cd80 + slot * 32);
   for (unsigned y = 0; y < 16; ++y)
     for (unsigned x = 0; x < 16; ++x) {
       unsigned at = (y / 8 * 2 + x / 8) * 32 + y % 8 * 2, color = 0;
@@ -232,27 +239,19 @@ bool FzeroVehiclesLoad(const uint8_t *stock, size_t size, char *error,
     return false;
   }
   memcpy(stock_image, stock, size);
+  uint8_t source_hash[32];
+  sha256_compute(stock, size, source_hash);
   for (unsigned group = 1; group <= 3; ++group) {
     if (!needed(group))
       continue;
     CpPack pack;
-    char path[96];
-    size_t length = 0;
-    snprintf(path, sizeof(path), "assets/vehicle-packs/cgp-p%u.ips", group);
-    if (!manifest(group, &pack, error, cap) ||
-        !cp_pack_apply(&pack, stock, size, path, &art[group - 1], &length,
-                       error, cap))
-      return false;
-    if (length != size + 8 + 4 * INFO_ENTRY_SIZE ||
-        memcmp(art[group - 1] + size, "FZCARD1\0", 8)) {
-      snprintf(error, cap, "Invalid vehicle artwork/card payload");
+    if (!manifest(group, &pack, error, cap)) return false;
+    if (memcmp(source_hash, pack.source_hash, sizeof(source_hash))) {
+      snprintf(error, cap, "CGP P%u artwork requires the verified USA game", group);
       return false;
     }
-    if (memcmp(art[group - 1] + 0x5ec00, stock + 0x5ec00, 0x400) ||
-        memcmp(art[group - 1] + 0x46f80, stock + 0x46f80, 0x80)) {
-      snprintf(error, cap, "Vehicle artwork changes shared HUD/fog resources");
-      return false;
-    }
+    art[group - 1] = load_vehicle_resources(stock, size, group, error, cap);
+    if (!art[group - 1]) return false;
   }
   /* Each enabled author's four-car group owns a complete native column.
    * Stock identities remain single entries; their optional rebalances affect
@@ -277,9 +276,9 @@ bool FzeroVehiclesLoad(const uint8_t *stock, size_t size, char *error,
 }
 static void copy_changes(uint8_t *out, const uint8_t *source, unsigned start,
                          unsigned size) {
-  for (unsigned i = start; i < start + size; ++i)
-    if (source[i] != stock_image[i])
-      out[i] = source[i];
+  for (unsigned i = 0; i < size; ++i)
+    if (source[i] != stock_image[start + i])
+      out[start + i] = source[i];
 }
 static void copy_stats(uint8_t *out, const uint8_t *source, unsigned slot) {
   static const unsigned fields[][2] = {
@@ -342,17 +341,19 @@ bool FzeroVehiclesPrepare(uint8_t **rom, size_t *size, char *error,
     FzeroGameplayConfigure(&image_settings[group], false, tracks);
     if (group) {
       for (unsigned slot = 0; slot < 4; ++slot) {
-        const uint8_t *donor = art[group - 1];
-        copy_changes(images[group], donor, 0x40000 + slot * 0x8000, 0x8000);
-        copy_changes(images[group], donor, 0x76200 + slot * 0x180, 0x180);
-        copy_changes(images[group], donor, 0x7cd80 + slot * 32, 32);
+        const unsigned tiles = 0x40000 + slot * 0x8000;
+        const unsigned portrait = 0x76200 + slot * 0x180;
+        const unsigned palette = 0x7cd80 + slot * 32;
+        copy_changes(images[group], vehicle_art(group, tiles), tiles, 0x8000);
+        copy_changes(images[group], vehicle_art(group, portrait), portrait, 0x180);
+        copy_changes(images[group], vehicle_art(group, palette), palette, 32);
       }
     }
     if (group) {
       /* CGP race images include their energy-boost HUD artwork. The stock
        * image and the separate stock BS path keep the original POWER HUD. */
-      memcpy(images[group] + 0x640d0, art[group - 1] + 0x640d0, 0x30);
-      memcpy(images[group] + 0x641b0, art[group - 1] + 0x641b0, 0x80);
+      memcpy(images[group] + 0x640d0, vehicle_art(group, 0x640d0), 0x30);
+      memcpy(images[group] + 0x641b0, vehicle_art(group, 0x641b0), 0x80);
     }
     ok = FzeroGameplayPrepare(&images[group], &length);
     if (!ok)
@@ -388,12 +389,14 @@ bool FzeroVehiclesPrepare(uint8_t **rom, size_t *size, char *error,
       unsigned lengths[] = {0x8000, 0x180, 32};
       for (unsigned region = 0; region < 3; ++region) {
         unsigned start = starts[region], length = lengths[region];
-        if (group)
+        if (group) {
+          const uint8_t *donor = vehicle_art(group, start);
           for (unsigned i = start; i < start + length; ++i)
-            if (art[group - 1][i] != stock_image[i])
+            if (donor[i - start] != stock_image[i])
               out[i] = base[i];
+        }
         if (source)
-          copy_changes(out, art[source - 1], start, length);
+          copy_changes(out, vehicle_art(source, start), start, length);
       }
       copy_stats(out, raw[source], slot);
       memcpy(out + 0xf0000 + slot * 256, raw[source] + 0xf0000 + slot * 256,
@@ -557,8 +560,7 @@ static void rival_compose(unsigned id, unsigned slot) {
   memcpy(rom + RIVAL_ART, images[group] + 0x40000 + original * 0x8000, 0x8000);
   memcpy(record, images[group] + 0xf0000 + original * 256, 256);
   record[0] = (uint8_t)(address(RIVAL_ART) >> 16);
-  const uint8_t *source = group ? art[group - 1] : stock_image;
-  memcpy(rom + RIVAL_PALETTES, source + 0x7cd80 + original * 32, 32);
+  memcpy(rom + RIVAL_PALETTES, vehicle_art(group, 0x7cd80 + original * 32), 32);
   pointer(record + 0x97, RIVAL_PALETTES);
   /* Allow the rival's authored top speed without changing the player's
    * identity-owned acceleration, steering, boost or exhaust tables. */
@@ -575,10 +577,9 @@ static void rival_resources(bool upload) {
   for (unsigned position = 0; position < 8; ++position) {
     unsigned id = rival_id(position), slot = id < 12 ? vehicles[id].slot : 0;
     unsigned group = id < 12 ? group_for(id) : 0;
-    const uint8_t *source = group ? art[group - 1] : stock_image;
     unsigned palettes = RIVAL_PALETTES + 32 + position * 64;
-    memcpy(rom + palettes, source + 0x76180 + slot * 32, 32);
-    memcpy(rom + palettes + 32, source + 0x7cd80 + slot * 32, 32);
+    memcpy(rom + palettes, vehicle_art(group, 0x76180 + slot * 32), 32);
+    memcpy(rom + palettes + 32, vehicle_art(group, 0x7cd80 + slot * 32), 32);
     if (id >= 12) memset(rom + palettes, 0, 64);
     for (unsigned entry = 0; entry < 12; ++entry) {
       uint8_t *p = rom + 0xf4386 + entry * 16;
@@ -594,7 +595,7 @@ static void rival_resources(bool upload) {
     if (!upload) continue;
     for (unsigned tile = 0; tile < 6; ++tile) {
       unsigned dest = 0x4000 + (tiles[position] + tile / 3 * 16 + tile % 3) * 32;
-      const uint8_t *pixels = source + 0x40000 + slot * 0x8000 + 0x6860 + tile * 32;
+      const uint8_t *pixels = vehicle_art(group, 0x46860 + slot * 0x8000 + tile * 32);
       for (unsigned j = 0; j < 16; ++j) {
         unsigned value = id < 12 ? read16(pixels + j * 2) : 0;
         g_ppu->vram[dest / 2 + j] = (uint16_t)value;
@@ -616,12 +617,11 @@ static void menu_resources(bool upload) {
   for (unsigned position = 0; position < 8; ++position) {
     unsigned id = menu_id(position), slot = id < 12 ? vehicles[id].slot : 0;
     unsigned group = id < 12 ? group_for(id) : 0;
-    const uint8_t *source = group ? art[group - 1] : stock_image;
     unsigned bank = MENU_ART + position * 0x8000;
-    memcpy(rom + bank, source + 0x40000 + slot * 0x8000, 0x8000);
+    memcpy(rom + bank, vehicle_art(group, 0x40000 + slot * 0x8000), 0x8000);
     unsigned normal = MENU_PALETTES + position * 32, dim = normal + 256;
-    memcpy(rom + normal, source + 0x7cd80 + slot * 32, 32);
-    memcpy(rom + dim, source + 0x76180 + slot * 32, 32);
+    memcpy(rom + normal, vehicle_art(group, 0x7cd80 + slot * 32), 32);
+    memcpy(rom + dim, vehicle_art(group, 0x76180 + slot * 32), 32);
     if (id >= 12) {
       memset(rom + bank, 0, 0x8000);
       memset(rom + normal, 0, 32);
@@ -653,7 +653,7 @@ static void menu_resources(bool upload) {
     unsigned row = slot == 1 ? 2 : slot == 2 ? 1 : slot;
     const uint8_t *card = images[0] + 0xf5ba0 + row * 4;
     unsigned card_offset = (unsigned)card[2] * 0x8000 + (read16(card) & 0x7fff);
-    card = group ? source + INFO_BASE + 8 + slot * INFO_ENTRY_SIZE
+    card = group ? vehicle_art(group, INFO_BASE + 8 + slot * INFO_ENTRY_SIZE)
                  : images[0] + card_offset;
     memcpy(rom + MENU_CARDS + position * INFO_CARD_SIZE, card, INFO_CARD_SIZE);
     pointer(rom + 0xf5ba0 + position * 4, MENU_CARDS + position * INFO_CARD_SIZE);
@@ -713,7 +713,43 @@ static unsigned pane_id(const uint8_t *ram, int relative, unsigned row) {
 static bool life_icon_active;
 static unsigned life_icon_base;
 static uint16_t life_icon_backup[4][16];
+static struct {
+  unsigned count, word[10];
+  uint16_t previous_tiles[10][32];
+} strafe;
+
+static void present_strafe_pair(Ppu *ppu, unsigned tile, unsigned source) {
+  unsigned base = (((ppu->obsel & 7) << 13) + tile * 16) & 0x7fff;
+  const uint8_t *tiles = vehicle_art(3, source);
+  unsigned index = strafe.count++;
+  strafe.word[index] = base;
+  memcpy(strafe.previous_tiles[index], ppu->vram + base, 64);
+  for (unsigned word = 0; word < 32; ++word)
+    ppu->vram[base + word] = (uint16_t)read16(tiles + word * 2);
+}
+
+static void present_strafe_art(Ppu *ppu, const uint8_t *ram) {
+  strafe.count = 0;
+  unsigned id = ram[ID_ADDRESS];
+  if (!art[2] || id < 4 || id >= FZERO_MACHINE_COUNT ||
+      vehicles[id].group != 3 || !enabled(id) || ram[0x5b] ||
+      ram[0x54] != 2 || ram[0x55] != 3 || ram[0x52] != vehicles[id].slot)
+    return;
+
+  /* The authored White Cat and Red Gazelle shoulder pairs live in the same
+   * source banks as Wild Goose and Fire Stingray. Select those pairs by the
+   * player ship's identity, independently of the other cars' balance. */
+  unsigned shoulders = 0x4fc00 + (vehicles[id].slot ? 0x100 : 0);
+  for (unsigned pair = 0; pair < 4; ++pair)
+    for (unsigned half = 0; half < 2; ++half)
+      present_strafe_pair(ppu, 0x0c + pair * 32 + half * 16,
+                          shoulders + pair * 64 + half * 0x200);
+  present_strafe_pair(ppu, 0x8c, 0x5fc00);
+  present_strafe_pair(ppu, 0x9c, 0x5fe00);
+}
+
 void FzeroVehiclesBeginFrame(Ppu *ppu, const uint8_t *ram) {
+  present_strafe_art(ppu, ram);
   /* The GP spare-machine symbol is a dedicated 16x16 OBJ reservation.
    * Use the selected identity's icon, including custom/rebalanced artwork,
    * while retaining the native count, position, palette and fade. */
@@ -725,7 +761,7 @@ void FzeroVehiclesBeginFrame(Ppu *ppu, const uint8_t *ram) {
       unsigned slot=slots[i],position=ppu->oam[slot*2],attr=ppu->oam[slot*2+1];
       if((position>>8)>=224 || (attr&0x1ff)!=0x1c8)continue;
       unsigned group=group_for(life_id),car=vehicles[life_id].slot;
-      const uint8_t *source=(group?art[group-1]:stock_image)+0x40000+car*0x8000+0x6aa0;
+      const uint8_t *source=vehicle_art(group,0x40000+car*0x8000+0x6aa0);
       life_icon_base=(((ppu->obsel&7)<<13)+(((ppu->obsel&0x18)+8)<<9)+0xc8*16)&0x7fff;
       for(unsigned tile=0;tile<4;++tile) {
         unsigned at=(life_icon_base+(tile/2)*256+(tile%2)*16)&0x7fff;
@@ -765,8 +801,7 @@ void FzeroVehiclesBeginFrame(Ppu *ppu, const uint8_t *ram) {
         memcpy(practice_results_tiles[row],
                ppu->vram + practice_results_base + row * 256, sizeof(practice_results_tiles[row]));
       memcpy(practice_results_palette, ppu->cgram + 240, sizeof(practice_results_palette));
-      const uint8_t *source = art[group_for(id) - 1] +
-          0x40000 + vehicles[id].slot * 0x8000 + 0x6aa0;
+      const uint8_t *source = vehicle_art(group_for(id), 0x46aa0 + vehicles[id].slot * 0x8000);
       for (unsigned slot = 0; slot < 4; ++slot)
         for (unsigned tile = 0; tile < 4; ++tile)
           for (unsigned word = 0; word < 16; ++word)
@@ -794,7 +829,7 @@ void FzeroVehiclesBeginFrame(Ppu *ppu, const uint8_t *ram) {
       0x5740, 0x5760, 0x5680, 0x56a0, 0x56c0, 0x5780, 0x57a0};
   for (unsigned i = 0; i < count; ++i) {
     unsigned id = roster[i], group = group_for(id), slot = vehicles[id].slot;
-    const uint8_t *source = (group ? art[group - 1] : stock_image) + 0x40000 + slot * 0x8000;
+    const uint8_t *source = vehicle_art(group, 0x40000 + slot * 0x8000);
     for (unsigned tile = 0; tile < 15; ++tile)
       for (unsigned j = 0; j < 16; ++j)
         ppu->vram[PANE_TILES + (i * 15 + tile) * 16 + j] =
@@ -857,7 +892,7 @@ void FzeroVehiclesBeginFrame(Ppu *ppu, const uint8_t *ram) {
 void FzeroVehiclesRaster(Ppu *ppu, const uint8_t *ram, unsigned line) {
   if (practice_results_active) {
     unsigned id = FzeroVehicleSelected();
-    const uint8_t *palette = art[group_for(id) - 1] + 0x7cd80 + vehicles[id].slot * 32;
+    const uint8_t *palette = vehicle_art(group_for(id), 0x7cd80 + vehicles[id].slot * 32);
     for (unsigned i = 0; i < 16; ++i) ppu->cgram[240 + i] = (uint16_t)read16(palette + i * 2);
     for (unsigned n = 0; n < practice_results_count; ++n) {
       unsigned sprite = practice_results_sprites[n];
@@ -886,13 +921,16 @@ void FzeroVehiclesRaster(Ppu *ppu, const uint8_t *ram, unsigned line) {
     if (x >= 104 || x + 40 <= 0) continue;
     unsigned id = pane_id(ram, relative, row), group = id < 12 ? group_for(id) : 0;
     unsigned slot = id < 12 ? vehicles[id].slot : 0;
-    const uint8_t *palette = (group ? art[group - 1] : stock_image) + 0x76180 + slot * 32;
+    const uint8_t *palette = vehicle_art(group, 0x76180 + slot * 32);
     unsigned dest = (4 + (relative + 3) % 3) * 16;
     for (unsigned i = 0; i < 16; ++i)
       ppu->cgram[dest + i] = id < 12 ? (uint16_t)read16(palette + i * 2) : 0;
   }
 }
 void FzeroVehiclesEndFrame(Ppu *ppu) {
+  for (unsigned i = 0; i < strafe.count; ++i)
+    memcpy(ppu->vram + strafe.word[i], strafe.previous_tiles[i], sizeof(strafe.previous_tiles[i]));
+  strafe.count = 0;
   if(life_icon_active)for(unsigned tile=0;tile<4;++tile)
     memcpy(ppu->vram+((life_icon_base+(tile/2)*256+(tile%2)*16)&0x7fff),life_icon_backup[tile],32);
   life_icon_active=false;
@@ -946,7 +984,7 @@ static void menu_hook(CpuState *cpu, uint32_t pc) {
     unsigned id = FzeroVehicleSelected(), group = group_for(id);
     unsigned slot = vehicles[id].slot;
     const uint8_t *colors = group
-        ? art[group - 1] + INFO_BASE + 8 + slot * INFO_ENTRY_SIZE + INFO_CARD_SIZE
+        ? vehicle_art(group, INFO_BASE + 8 + slot * INFO_ENTRY_SIZE + INFO_CARD_SIZE)
         : stock_image + 0x18901 + slot * 6;
     memcpy(g_ram + 0x532, colors, 6);
     memcpy(g_ram + 0x544, colors, 6);
@@ -962,8 +1000,7 @@ static void menu_hook(CpuState *cpu, uint32_t pc) {
       unsigned id = g_snes->cart->rom[0xf00ff + slot * 256];
       if (id >= 12) continue;
       unsigned group = group_for(id);
-      const uint8_t *source = group ? art[group - 1] : stock_image;
-      const uint8_t *color = source + 0x7cd06 + hud_row[vehicles[id].slot] * 32;
+      const uint8_t *color = vehicle_art(group, 0x7cd06 + hud_row[vehicles[id].slot] * 32);
       unsigned offset = 6 + hud_row[slot] * 32;
       memcpy(g_ram + 0x600 + offset, color, 2);
       memcpy(g_ram + 0x700 + offset, color, 2);
@@ -1105,16 +1142,154 @@ void FzeroVehiclesInstallHooks(void) {
     interp_bridge_set_pre_opcode_hook(sites[i], menu_hook);
 }
 
-uint8_t *FzeroVehicleVersusImage(const uint8_t *stock,size_t size,unsigned group,char *error,size_t cap) {
-  if(!stock || size!=0x80000 || group<1 || group>3)return NULL;
-  CpPack pack;char path[96];size_t length=0;uint8_t *source=NULL;
-  snprintf(path,sizeof(path),"assets/vehicle-packs/cgp-p%u.ips",group);
-  if(!manifest(group,&pack,error,cap) || !cp_pack_apply(&pack,stock,size,path,&source,&length,error,cap))return NULL;
-  if(length!=size+8+4*INFO_ENTRY_SIZE || memcmp(source+size,"FZCARD1\0",8) ||
-      memcmp(source+0x5ec00,stock+0x5ec00,0x400) || memcmp(source+0x46f80,stock+0x46f80,0x80)) {
-    snprintf(error,cap,"Invalid CGP P%u VS resources",group);free(source);return NULL;
+/* The native VS actors and renderer share these assets. The offsets identify
+ * the approved source fields in the existing author packs. None of this
+ * storage is mapped to the guest CPU. */
+enum {
+  VEHICLE_TILES = 0x40000, HUD_ART = 0x640d0, VEHICLE_PORTRAITS = 0x76180,
+  VEHICLE_PALETTES = 0x7cd00, VEHICLE_STATS = 0x7a79, DRIVING_CURVES = 0x149ab,
+  EXHAUST_LAYOUT = 0x468c, EXHAUST_POSES = 0x4762,
+};
+struct FzeroVehicleResources {
+  uint8_t tiles[0x20000], hud[0x160], portraits[0x680], palettes[0x100];
+  uint8_t cards[8 + 4 * INFO_ENTRY_SIZE];
+  uint8_t handling[120], curves[328], exhaust[187], exhaust_poses[26];
+};
+
+typedef struct VehicleArtSlice {
+  unsigned offset, size;
+  uint8_t *bytes;
+} VehicleArtSlice;
+
+static unsigned big_endian(const uint8_t *p, unsigned length) {
+  unsigned value = 0;
+  for (unsigned i = 0; i < length; ++i) value = value * 256 + p[i];
+  return value;
+}
+
+static bool load_versus_art(unsigned group, const VehicleArtSlice *slices, unsigned count) {
+  /* Authenticate the author asset directly, before extracting the known
+   * fields. The historical target-ROM digest required an assembled image. */
+  static const char *const digests[] = {
+      "8c9af96b02c0183bf1776684f567a2f7fd20ce82388202907c0502f7605ed3d3",
+      "6b28ced3f01a1e342cf4430ab4cdd16235a6026b371d59c9c1d44c96109ee560",
+      "bbb0200e7697fb975e0be30d4bd54db1f688409e65a58fc4192391dda01bcdea",
+  };
+  char path[96];
+  snprintf(path, sizeof(path), "assets/vehicle-packs/cgp-p%u.ips", group);
+  FILE *file = fopen(path, "rb");
+  if (!file) return false;
+  long size = fseek(file, 0, SEEK_END) ? 0 : ftell(file);
+  uint8_t *data = size >= 8 && size <= 0x40000 ? malloc((size_t)size) : NULL;
+  bool ok = data && !fseek(file, 0, SEEK_SET) && fread(data, 1, (size_t)size, file) == (size_t)size;
+  fclose(file);
+  if (!ok) { free(data); return false; }
+
+  uint8_t digest[32], expected[32];
+  sha256_compute(data, (size_t)size, digest);
+  cp_hash_parse(digests[group - 1], expected);
+  ok = !memcmp(digest, expected, sizeof(digest)) && !memcmp(data, "PATCH", 5);
+  unsigned position = 5, end = (unsigned)size;
+  while (ok && position + 3 <= end && memcmp(data + position, "EOF", 3)) {
+    if (end - position < 5) { ok = false; break; }
+    unsigned offset = big_endian(data + position, 3);
+    unsigned length = big_endian(data + position + 3, 2);
+    position += 5;
+    bool repeat = length == 0;
+    if (repeat) {
+      if (end - position < 3) { ok = false; break; }
+      length = big_endian(data + position, 2);
+      position += 2;
+    }
+    unsigned encoded = repeat ? 1 : length;
+    if (!length || encoded > end - position) { ok = false; break; }
+    for (unsigned i = 0; i < count; ++i) {
+      const VehicleArtSlice *slice = &slices[i];
+      unsigned first = offset > slice->offset ? offset : slice->offset;
+      unsigned last = offset + length;
+      if (last > slice->offset + slice->size) last = slice->offset + slice->size;
+      if (first >= last) continue;
+      uint8_t *target = slice->bytes + (first - slice->offset);
+      if (repeat) memset(target, data[position], last - first);
+      else memcpy(target, data + position + first - offset, last - first);
+    }
+    position += encoded;
   }
-  uint8_t *image=calloc(1,IMAGE_SIZE);
-  if(!image) {free(source);snprintf(error,cap,"Cannot allocate vehicle profile");return NULL;}
-  memcpy(image,source,length);free(source);FzeroGameplayBuildVehicleProfile(image,group);return image;
+  /* The checked-in packs finish with EOF and the original card-asset size. */
+  ok = ok && end - position == 6 && !memcmp(data + position, "EOF", 3) &&
+      big_endian(data + position + 3, 3) == INFO_BASE + 8 + 4 * INFO_ENTRY_SIZE;
+  free(data);
+  return ok;
+}
+
+static FzeroVehicleResources *load_vehicle_resources(const uint8_t *stock, size_t size,
+                                                    unsigned group, char *error, size_t cap) {
+  if (!stock || size != 0x80000 || group < 1 || group > 3) return NULL;
+  FzeroVehicleResources *resources = calloc(1, sizeof(*resources));
+  if (!resources) {
+    snprintf(error, cap, "Cannot allocate CGP P%u vehicle resources", group);
+    return NULL;
+  }
+#define SLICE(offset, field) {offset, sizeof(resources->field), resources->field}
+  const VehicleArtSlice art_slices[] = {
+      SLICE(VEHICLE_TILES, tiles), SLICE(HUD_ART, hud),
+      SLICE(VEHICLE_PORTRAITS, portraits), SLICE(VEHICLE_PALETTES, palettes),
+      SLICE(INFO_BASE, cards),
+  };
+#undef SLICE
+  for (unsigned i = 0; i < sizeof(art_slices) / sizeof(*art_slices); ++i)
+    if (art_slices[i].offset < size)
+      memcpy(art_slices[i].bytes, stock + art_slices[i].offset, art_slices[i].size);
+  if (!load_versus_art(group, art_slices, sizeof(art_slices) / sizeof(*art_slices)) ||
+      memcmp(resources->cards, "FZCARD1\0", 8)) {
+    snprintf(error, cap, "Invalid CGP P%u vehicle art", group);
+    free(resources);
+    return NULL;
+  }
+  return resources;
+}
+
+FzeroVehicleResources *FzeroVehicleVersusResources(const uint8_t *stock, size_t size,
+                                                  unsigned group, char *error, size_t cap) {
+  FzeroVehicleResources *resources = load_vehicle_resources(stock, size, group, error, cap);
+  if (!resources) return NULL;
+#define SLICE(offset, field) {offset, sizeof(resources->field), resources->field}
+  const VehicleArtSlice mechanics[] = {
+      SLICE(VEHICLE_STATS, handling), SLICE(DRIVING_CURVES, curves),
+      SLICE(EXHAUST_LAYOUT, exhaust), SLICE(EXHAUST_POSES, exhaust_poses),
+  };
+#undef SLICE
+  /* The shared lightning tiles come from the authored boost rule. They
+   * have no bearing on the vehicles' playable artwork or handling. */
+  FzeroGameplayVehicleData(group, VEHICLE_TILES, resources->tiles, sizeof(resources->tiles));
+  for (unsigned i = 0; i < sizeof(mechanics) / sizeof(*mechanics); ++i) {
+    const VehicleArtSlice *section = &mechanics[i];
+    memcpy(section->bytes, stock + section->offset, section->size);
+    FzeroGameplayVehicleData(group, section->offset, section->bytes, section->size);
+  }
+  return resources;
+}
+
+static const uint8_t *vehicle_resource(const FzeroVehicleResources *resources, unsigned offset) {
+#define READ_SLICE(start, field) \
+  if (offset >= (start) && offset - (start) < sizeof(resources->field)) \
+    return resources->field + (offset - (start));
+  READ_SLICE(VEHICLE_TILES, tiles)
+  READ_SLICE(VEHICLE_PALETTES, palettes)
+  READ_SLICE(VEHICLE_PORTRAITS, portraits)
+  READ_SLICE(INFO_BASE, cards)
+  READ_SLICE(VEHICLE_STATS, handling)
+  READ_SLICE(DRIVING_CURVES, curves)
+  READ_SLICE(EXHAUST_LAYOUT, exhaust)
+  READ_SLICE(EXHAUST_POSES, exhaust_poses)
+  READ_SLICE(HUD_ART, hud)
+#undef READ_SLICE
+  return NULL;
+}
+
+bool FzeroVehicleResourceByte(const FzeroVehicleResources *resources, unsigned offset, uint8_t *value) {
+  const uint8_t *source = vehicle_resource(resources, offset);
+  if (!source) return false;
+  *value = *source;
+  return true;
 }

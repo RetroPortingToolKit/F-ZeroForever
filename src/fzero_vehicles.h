@@ -25,6 +25,9 @@ void FzeroVehiclesRaster(struct Ppu *ppu, const uint8_t *ram, unsigned line);
 void FzeroVehiclesBeginFrame(struct Ppu *ppu, const uint8_t *ram);
 void FzeroVehiclesEndFrame(struct Ppu *ppu);
 
-/* Independently verified artwork/card plus the same authored mechanics as1P.
- * Caller owns the returned 4MiB immutable resource image. No live image swap. */
-uint8_t *FzeroVehicleVersusImage(const uint8_t *stock,size_t size,unsigned group,char *error,size_t cap);
+/* Artwork, cards and handling tables consumed by host-native VS. The caller
+ * owns the returned resources. */
+typedef struct FzeroVehicleResources FzeroVehicleResources;
+FzeroVehicleResources *FzeroVehicleVersusResources(const uint8_t *stock, size_t size,
+                                                  unsigned group, char *error, size_t cap);
+bool FzeroVehicleResourceByte(const FzeroVehicleResources *resources, unsigned offset, uint8_t *value);

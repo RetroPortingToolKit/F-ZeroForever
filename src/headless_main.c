@@ -414,6 +414,12 @@ int main(int argc, char **argv) {
     free(rom);
     return 2;
   }
+  if (getenv("FZERO_TEST_STRAFE_ART")) {
+    extern bool FzeroStrafeArtProbe(const uint8_t *stock, size_t size);
+    bool passed = FzeroStrafeArtProbe(rom, rom_size);
+    free(rom);
+    return passed ? 0 : 9;
+  }
 
   const char *track_root = getenv("FZERO_TRACK_PACKS");
   if (!FzeroTracksInit(track_root ? track_root : "mods/track-packs",

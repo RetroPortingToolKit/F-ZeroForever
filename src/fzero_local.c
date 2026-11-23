@@ -29,24 +29,24 @@ static FzeroNativeUi ui;
 static unsigned menu_selection,result_ticks,menu_owner;
 static uint8_t stock_tables[0x80000];
 static bool have_stock_tables;
-static uint8_t *machine_tables[3];
+static FzeroVehicleResources *machine_resources[3];
 bool FzeroLocalStockTables(const uint8_t *rom,size_t size) {
   if(!rom || size!=sizeof(stock_tables))return false;
   memcpy(stock_tables,rom,size);have_stock_tables=true;
   memset(&ui,0,sizeof(ui));
   for (unsigned group = 0; group < 3; ++group) {
-    free(machine_tables[group]);
-    machine_tables[group] = NULL;
+    free(machine_resources[group]);
+    machine_resources[group] = NULL;
   }
   return true;
 }
 
 static bool prepare_versus_machines(void) {
   for(unsigned group=1;group<=3;++group) {
-    if (machine_tables[group-1]) continue;
+    if (machine_resources[group-1]) continue;
     char error[192]={0};
-    machine_tables[group-1]=FzeroVehicleVersusImage(stock_tables,sizeof(stock_tables),group,error,sizeof(error));
-    if(!machine_tables[group-1]) {fprintf(stderr,"[versus vehicles] %s\n",error);return false;}
+    machine_resources[group-1]=FzeroVehicleVersusResources(stock_tables,sizeof(stock_tables),group,error,sizeof(error));
+    if(!machine_resources[group-1]) {fprintf(stderr,"[versus vehicles] %s\n",error);return false;}
   }
   return true;
 }
@@ -77,7 +77,11 @@ static uint8_t read_table(void *context,uint32_t address) {
   (void)context;
   unsigned group=address>>24;address&=0xffffff;
   unsigned offset=((address>>16)&127)*0x8000+(address&0x7fff);
-  if(group)return group<=3 && offset<0x400000 && machine_tables[group-1]?machine_tables[group-1][offset]:0;
+  if (group) {
+    if (group > 3 || !machine_resources[group - 1]) return 0;
+    uint8_t value;
+    if (FzeroVehicleResourceByte(machine_resources[group - 1], offset, &value)) return value;
+  }
   if(have_stock_tables)return offset<sizeof(stock_tables)?stock_tables[offset]:0;
   const uint8_t *p=cart_getRomPtr(g_snes->cart,(uint8_t)(address>>16),(uint16_t)address);
   return p?*p:0;

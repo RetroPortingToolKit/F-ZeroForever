@@ -69,6 +69,5 @@ void FzeroGameplayActivateVehicles(const FzeroGameplaySettings *settings, uint8_
 void FzeroGameplaySetSignature(const uint8_t hash[32]);
 uint16_t FzeroGameplayMenuInput(uint16_t input, const uint8_t *ram);
 
-/* Build an immutable authored VS vehicle resource image without selecting it
- * as the live single-player cartridge or changing saved gameplay settings. */
-void FzeroGameplayBuildVehicleProfile(uint8_t *image,unsigned group);
+/* Load the authored values for a bounded host vehicle table. */
+void FzeroGameplayVehicleData(unsigned group, unsigned offset, uint8_t *data, size_t size);

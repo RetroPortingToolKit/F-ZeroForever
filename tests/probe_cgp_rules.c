@@ -6,12 +6,16 @@
 #include "cpu_state.h"
 #include "fzero_deluxe.h"
 #include "fzero_gameplay.h"
+#include "fzero_machine.h"
 #include "fzero_course_runtime.h"
 #include "fzero_runtime.h"
+#include "fzero_ship.h"
+#include "fzero_vehicles.h"
 #include "fzero_gameplay_patches.inc"
 #include "snes/cart.h"
 #include "sha256.h"
 #include "snes/interp_bridge.h"
+#include "snes/ppu.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +28,79 @@
     }                                                                          \
   } while (0)
 static unsigned stopped;
+
+typedef struct StrafeFixture {
+  const uint8_t *stock;
+  FzeroVehicleResources *art;
+} StrafeFixture;
+
+static uint8_t read_strafe_art(void *context, uint32_t address) {
+  const StrafeFixture *fixture = context;
+  unsigned offset = ((address >> 16) & 127) * 0x8000 + (address & 0x7fff);
+  uint8_t value;
+  if ((address >> 24) == 3 && FzeroVehicleResourceByte(fixture->art, offset, &value))
+    return value;
+  return offset < 0x80000 ? fixture->stock[offset] : 0;
+}
+
+bool FzeroStrafeArtProbe(const uint8_t *stock, size_t size) {
+  static Ppu ppu;
+  static uint16_t original_vram[0x8000];
+  FzeroShip poses[2][2];
+  char error[192] = {0};
+  StrafeFixture fixture = {stock, FzeroVehicleVersusResources(stock, size, 3, error, sizeof(error))};
+  if (!fixture.art) fprintf(stderr, "%s\n", error);
+  CHECK(fixture.art);
+  memset(original_vram, 0x6d, sizeof(original_vram));
+  memcpy(ppu.vram, original_vram, sizeof(original_vram));
+  ppu.obsel = 2; /* Race's first OBJ tile bank at VRAM word $4000. */
+  g_ram[0x54] = 2;
+  g_ram[0x55] = 3;
+  g_ram[0x58] = 1;
+  for (unsigned balance = 0; balance <= 15; balance += 15) {
+    const FzeroGameplaySettings settings = {.vehicle_packs = 4, .stock_rebalance = balance};
+    FzeroGameplayConfigure(&settings, false, false);
+    CHECK(FzeroVehiclesLoad(stock, size, error, sizeof(error)));
+    for (unsigned id = 10; id <= 11; ++id) {
+      g_ram[0x14dff] = (uint8_t)id;
+      g_ram[0x52] = (uint8_t)FzeroMachineSlot(id);
+      FzeroVehiclesBeginFrame(&ppu, g_ram);
+      for (unsigned pair = 0; pair < 10; ++pair) {
+        unsigned source, target;
+        if (pair < 8) {
+          source = 0x4fc00 + (id - 10) * 0x100 + pair % 4 * 64 + pair / 4 * 0x200;
+          target = 0x40c0 + pair % 4 * 0x200 + pair / 4 * 0x100;
+        } else {
+          source = 0x5fc00 + (pair - 8) * 0x200;
+          target = 0x48c0 + (pair - 8) * 0x100;
+        }
+        for (unsigned i = 0; i < 32; ++i) {
+          uint8_t lo, hi;
+          CHECK(FzeroVehicleResourceByte(fixture.art, source + i * 2, &lo));
+          CHECK(FzeroVehicleResourceByte(fixture.art, source + i * 2 + 1, &hi));
+          CHECK(ppu.vram[target + i] == (lo | (unsigned)hi << 8));
+        }
+      }
+      FzeroVehiclesEndFrame(&ppu);
+      CHECK(!memcmp(ppu.vram, original_vram, sizeof(original_vram)));
+
+      for (unsigned direction = 0; direction < 2; ++direction) {
+        FzeroActor player = {.machine = (uint8_t)id, .x = 700, .y = 1500,
+            .height = 0x400, .facing = 0x3000, .steering_history = (uint8_t)(0x80 + direction)};
+        FzeroActorTables tables = {read_strafe_art, &fixture, (uint8_t)balance};
+        FzeroShip frame;
+        CHECK(FzeroShipBuild(&frame, &player, &player, tables) && frame.visible);
+        if (!balance) poses[id - 10][direction] = frame;
+        else CHECK(!memcmp(frame.pixels, poses[id - 10][direction].pixels, sizeof(frame.pixels)));
+      }
+      CHECK(memcmp(poses[id - 10][0].pixels, poses[id - 10][1].pixels, sizeof(poses[0][0].pixels)));
+    }
+  }
+  free(fixture.art);
+  puts("White Cat and Red Gazelle shoulder data and both directions match with rebalances off and on.");
+  return true;
+}
+
 static bool reference_fragment;
 static bool probe_rule(FzeroRule rule) {
   const FzeroCourse *course = FzeroTracksCurrentCourse();
