@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -294,14 +295,26 @@ FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap
   unsigned ticks = static_cast<unsigned>(data.size() / kPoseBytes);
   if (!ticks || best_lap_ticks > ticks)
     return FZERO_GHOST_INVALID;
-  fs::path slot;
+  fs::path staging;
+  FzeroGhostResult result = FZERO_GHOST_IO_ERROR;
   try {
     fs::create_directories(library->folder);
+    auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    for (unsigned attempt = 0; attempt < kMaximumRuns; ++attempt) {
+      auto path = library->folder / (".pending-" + std::to_string(stamp) + "-" + std::to_string(attempt));
+      if (fs::create_directory(path)) {
+        staging = std::move(path);
+        break;
+      }
+    }
+    if (staging.empty())
+      return FZERO_GHOST_IO_ERROR;
+    const auto temporary = staging / "run.fzg";
+    result = FZERO_GHOST_FULL;
     for (unsigned id = 1; id <= kMaximumRuns; ++id) {
       auto candidate = library->folder / slot_name(id);
-      if (!fs::create_directory(candidate))
+      if (fs::exists(candidate))
         continue;
-      slot = std::move(candidate);
       Bytes header(std::begin(kMagic), std::end(kMagic));
       header.insert(header.end(), library->key, library->key + 32);
       put_int(header, id);
@@ -315,14 +328,24 @@ FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap
       uint8_t digest[32];
       run_digest(digest, header.data(), data);
       header.insert(header.end(), std::begin(digest), std::end(digest));
-      auto temporary = slot / "run.tmp";
       std::ofstream output(temporary, std::ios::binary);
       output.write(reinterpret_cast<const char *>(header.data()), header.size());
       output.write(reinterpret_cast<const char *>(data.data()), data.size());
       output.close();
-      if (!output)
+      if (!output) {
+        result = FZERO_GHOST_IO_ERROR;
         break;
-      fs::rename(temporary, slot / "run.fzg");
+      }
+      /* Publish a complete, nonempty directory. An interrupted write never
+       * takes a numbered slot, and concurrent writers cannot replace a
+       * published nonempty directory. */
+      std::error_code error;
+      fs::rename(staging, candidate, error);
+      if (error) {
+        if (fs::exists(candidate)) continue;
+        result = FZERO_GHOST_IO_ERROR;
+        break;
+      }
       FzeroGhostRun committed{id, ticks, best_lap_ticks, library->machine, finish_centiseconds, {}};
       std::memcpy(committed.legacy_source, source, sizeof(committed.legacy_source));
       library->runs.insert(std::lower_bound(library->runs.begin(), library->runs.end(), committed, run_order), committed);
@@ -330,15 +353,14 @@ FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap
       library->recording_prefixes.clear();
       return FZERO_GHOST_OK;
     }
-    if (slot.empty())
-      return FZERO_GHOST_FULL;
   } catch (const std::exception &) {
     /* Recoverable writing errors leave the current run available for retry. */
+    result = FZERO_GHOST_IO_ERROR;
   }
-  if (!slot.empty()) {
+  if (!staging.empty()) {
     std::error_code error;
-    fs::remove(slot / "run.tmp", error);
-    fs::remove(slot, error);
+    fs::remove(staging / "run.fzg", error);
+    fs::remove(staging, error);
   }
-  return FZERO_GHOST_IO_ERROR;
+  return result;
 }

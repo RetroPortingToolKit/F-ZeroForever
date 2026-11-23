@@ -128,9 +128,11 @@ int main() {
   CHECK(FzeroGhostCount(open(key).get()) == 4);
 
   const auto course_folder = fs::directory_iterator(directory / "practice-ghosts")->path();
-  CHECK(fs::create_directory(course_folder / "005"));
-  std::ofstream(course_folder / "005" / "run.tmp") << "interrupted write";
+  CHECK(fs::create_directory(course_folder / ".pending-interrupted"));
+  std::ofstream(course_folder / ".pending-interrupted" / "run.fzg") << "interrupted write";
   CHECK(FzeroGhostCount(open(key).get()) == 4);
+  record(reader.get(), 3, 15, 0x4020);
+  CHECK(fs::is_regular_file(course_folder / "005" / "run.fzg"));
   std::fstream broken(course_folder / "003" / "run.fzg", std::ios::binary | std::ios::in | std::ios::out);
   broken.seekp(-1, std::ios::end);
   broken.put('!');
