@@ -2,6 +2,10 @@
 
 #include "fzero_practice_ghosts.h"
 
+/* Alpha.1 used a separate retail save directory for its music-only adapter.
+ * The route used stock Practice physics and the same three retail leagues. */
+#define FZERO_LEGACY_MSU_RECORDS "rules-913a5cdb9be47066"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

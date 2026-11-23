@@ -75,9 +75,10 @@ void FzeroPracticeGhostRoot(const char *path) {
   if (written < 0 || (size_t)written >= sizeof(root)) root[0] = 0;
 }
 
-static void import_retail_legacy(const uint8_t *ram) {
-  char path[CP_PATH + sizeof("/ghosts/save.srm")];
-  snprintf(path, sizeof(path), "%s/ghosts/save.srm", root);
+static void import_retail_legacy(const uint8_t *ram, const char *relative_path) {
+  char path[CP_PATH + sizeof("/" FZERO_LEGACY_MSU_RECORDS "/ghosts/save.srm")];
+  int written = snprintf(path, sizeof(path), "%s/%s", root, relative_path);
+  if (written < 0 || (size_t)written >= sizeof(path)) return;
   FILE *file = fopen(path, "rb");
   if (!file) return;
   uint8_t sram[0x8000];
@@ -127,7 +128,10 @@ static void load_course(const uint8_t *ram, bool import_legacy) {
                                RETAIL_PRACTICE_PROFILE, 0);
     session.library = FzeroGhostOpen(root, key);
     if (!session.library) session.error = FZERO_GHOST_IO_ERROR;
-    else if (import_legacy && course_panel(ram)) import_retail_legacy(ram);
+    else if (import_legacy && course_panel(ram)) {
+      import_retail_legacy(ram, "ghosts/save.srm");
+      import_retail_legacy(ram, FZERO_LEGACY_MSU_RECORDS "/ghosts/save.srm");
+    }
   }
 }
 

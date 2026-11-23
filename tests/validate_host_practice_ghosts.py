@@ -54,6 +54,12 @@ def main():
     assert active_ram[0x54:0x56] == off_ram[0x54:0x56] == b"\x01\x02"
     assert active_frame == off_frame, "Ghost toggle altered the stock roster art"
 
+    grand_prix = "320-326:8,440-446:8,560-566:8,730-736:8,790-796:8,1160-1499:1"
+    _, gp_on_ram, gp_on = run("grand-prix-on", grand_prix, 1500)
+    _, gp_off_ram, gp_off = run("grand-prix-off", grand_prix, 1500, FZERO_GHOSTS="0")
+    assert gp_on_ram[0x54:0x56] == b"\x02\x03" and gp_on_ram[0x58] == 0
+    assert gp_on_ram == gp_off_ram and gp_on == gp_off, "Ghost toggle altered Grand Prix"
+
     _, empty_ram, empty_frame = run("empty", title + confirm_car + ghost + preview, 950)
     _, plain_ram, plain_frame = run("empty-control", title + confirm_car + no_rival + preview, 950)
     assert empty_ram[0x53:0x59] == plain_ram[0x53:0x59]
@@ -146,19 +152,45 @@ def main():
     struct.pack_into("<5H", legacy, 0x3a0, 0, 0x4200, len(deltas), sum(deltas), 90)
     legacy[0x4200:0x4200 + len(deltas)] = deltas
     native.write_bytes(legacy)
+
+    music_namespace = legacy_root / "rules-913a5cdb9be47066"
+    music_native = music_namespace / "save.srm"
+    music_ghost = music_namespace / "ghosts" / "save.srm"
+    music_ghost.parent.mkdir(parents=True)
+    music_progress = bytearray(0x800)
+    music_progress[:5] = b"FZERO"
+    for start in (0x005, 0x0ac, 0x153):
+        music_progress[start:start + 165] = b"\x09\x59\x99" * 55
+        if start == 0x005:
+            music_progress[start:start + 3] = b"\x01\x13\x22"
+        struct.pack_into("<H", music_progress, start + 165, sum(music_progress[start:start + 165]))
+    music_progress[0x1fa] = 0x22
+    music_native.write_bytes(music_progress)
+    music_replay = bytearray(legacy)
+    struct.pack_into("<H", music_replay, 0x3aa, 1)
+    music_ghost.write_bytes(music_replay)
+
     for label in ("legacy-first", "legacy-restart"):
         log, _, _ = run(label, base + race, 1300, SNESRECOMP_SAVE_ROOT="s-legacy")
-        assert ("imported legacy" in log) == (label == "legacy-first")
+        assert log.count("imported legacy") == (2 if label == "legacy-first" else 0)
         assert "racing course=0 run=1 car=0" in log
         assert native.read_bytes() == legacy
+        assert music_native.read_bytes() == music_progress and music_ghost.read_bytes() == music_replay
+    log, _, _ = run("legacy-music-rival", base + ",950:2048" + race, 1300,
+                   SNESRECOMP_SAVE_ROOT="s-legacy")
+    assert "racing course=0 run=2 car=1" in log
+    migrated_progress = (legacy_root / "save.srm").read_bytes()
+    assert migrated_progress[5:8] == b"\x01\x13\x22" and migrated_progress[0x1fa] == 0x22
     legacy_archive = list((legacy_root / "practice-ghosts").glob("*/*/run.fzg"))
-    assert len(legacy_archive) == 1
+    assert len(legacy_archive) == 2
 
     (out / "summary.json").write_text(json.dumps({
         "stock_sha256": original, "passed": True,
         "metadata": metadata, "compared_visible_playback": len(archive),
         "forced_finish_crossing": True, "legacy_format_fixture": True,
         "same_session_rewind": True, "cold_state_load_ghost": True,
+        "legacy_music_namespace": True,
+        "grand_prix_ghost_toggle": True,
     }, indent=2) + "\n", encoding="utf-8")
 
 

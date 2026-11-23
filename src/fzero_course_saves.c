@@ -279,13 +279,23 @@ void FzeroRecordsMergeCup(uint8_t records[0x400], const uint8_t previous[0x400],
  * Each program reads and writes only its own files. It reads its twin's block
  * and folds those times into what it shows and saves, so changing the ghost
  * setting never hides a record. A twin file is never created or modified. */
-static char twin_root[96];
-static unsigned twin_size;
+static struct RecordTwin {
+  char root[96];
+  unsigned size;
+} twins[3];
+static unsigned twin_count;
 static bool twin_base_merged;
+void FzeroRecordsAddTwin(const char *root, unsigned sram_size) {
+  if (!root || twin_count == sizeof(twins) / sizeof(*twins) ||
+      strlen(root) >= sizeof(twins[0].root)) return;
+  struct RecordTwin *twin = &twins[twin_count++];
+  snprintf(twin->root, sizeof(twin->root), "%s", root);
+  twin->size = sram_size;
+}
 void FzeroRecordsSetTwin(const char *root, unsigned sram_size) {
-  twin_size = root && snprintf(twin_root, sizeof(twin_root), "%s", root) < (int)sizeof(twin_root)
-                  ? sram_size : 0;
+  twin_count = 0;
   twin_base_merged = false;
+  FzeroRecordsAddTwin(root, sram_size);
 }
 static const unsigned league_start[] = {5, 0xac, 0x153};
 static bool league_valid(const uint8_t *records, unsigned cup) {
@@ -293,15 +303,14 @@ static bool league_valid(const uint8_t *records, unsigned cup) {
   for (unsigned i = 0; i < 165; ++i) sum += records[start + i];
   return records[start + 165] == (uint8_t)sum && records[start + 166] == (uint8_t)(sum >> 8);
 }
-static bool twin_read(const uint8_t *key, uint8_t block[0x400]) {
-  if (!twin_size) return false;
+static bool twin_read(const struct RecordTwin *twin, const uint8_t *key, uint8_t block[0x400]) {
   char hex[65], path[160];
-  long expected = (long)twin_size;
+  long expected = (long)twin->size;
   if (key) {
     cp_hash_format(key, hex);
-    snprintf(path, sizeof(path), "%s/courses/%.32s/records.bin", twin_root, hex);
+    snprintf(path, sizeof(path), "%s/courses/%.32s/records.bin", twin->root, hex);
     expected += 32 + 0x200;
-  } else snprintf(path, sizeof(path), "%s/save.srm", twin_root);
+  } else snprintf(path, sizeof(path), "%s/save.srm", twin->root);
   FILE *f = fopen(path, "rb");
   if (!f) return false;
   uint8_t hash[32];
@@ -312,9 +321,9 @@ static bool twin_read(const uint8_t *key, uint8_t block[0x400]) {
   /* A base save the game has not initialized carries no records. */
   return ok && (key || !memcmp(block, "FZERO", 5));
 }
-bool FzeroRecordsMergeTwin(const uint8_t *key, uint8_t records[0x400]) {
+static bool merge_twin(const struct RecordTwin *twin, const uint8_t *key, uint8_t records[0x400]) {
   uint8_t other[0x400];
-  if (!twin_read(key, other)) return false;
+  if (!twin_read(twin, key, other)) return false;
   bool changed = false;
   for (unsigned cup = 0; cup < 3; ++cup) {
     if (!league_valid(other, cup) || !league_valid(records, cup)) continue;
@@ -334,10 +343,19 @@ bool FzeroRecordsMergeTwin(const uint8_t *key, uint8_t records[0x400]) {
   }
   return changed;
 }
+bool FzeroRecordsMergeTwin(const uint8_t *key, uint8_t records[0x400]) {
+  bool changed = false;
+  for (unsigned i = 0; i < twin_count; ++i) {
+    if (!merge_twin(&twins[i], key, records)) continue;
+    changed = true;
+    if (!key) fprintf(stderr, "[records] merged times from %s\n", twins[i].root);
+  }
+  return changed;
+}
 void FzeroRecordsMergeTwinBase(void) {
   /* Once per session, after the game has validated or initialized its save
    * and while the base context is the live one. */
-  if (twin_base_merged || !twin_size || state.external || state.view || g_sram_size < 0x200 ||
+  if (twin_base_merged || !twin_count || state.external || state.view || g_sram_size < 0x200 ||
       memcmp(g_sram, "FZERO", 5))
     return;
   twin_base_merged = true;
@@ -346,7 +364,6 @@ void FzeroRecordsMergeTwinBase(void) {
   if (!FzeroRecordsMergeTwin(NULL, records)) return;
   memcpy(g_sram, records, 0x200);
   memcpy(g_ram + 0x14800, g_sram, 0x200);
-  fprintf(stderr, "[records] merged times from %s\n", twin_root);
 }
 size_t FzeroTracksSaveStateSize(void) {
   return sizeof(state);

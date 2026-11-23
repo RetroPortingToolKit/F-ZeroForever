@@ -24,6 +24,7 @@ void FzeroRecordsMergeCup(uint8_t records[0x400], const uint8_t previous[0x400],
 /* The same content on the other program (stock cartridge / Deluxe with only
  * Practice ghosts added): its save root and SRAM size, or NULL for none. */
 void FzeroRecordsSetTwin(const char *root, unsigned sram_size);
+void FzeroRecordsAddTwin(const char *root, unsigned sram_size);
 /* Fold the twin's times (and, for the base save, class unlocks) for `key`
  * into `records`. Read-only for the twin. Returns whether anything changed. */
 bool FzeroRecordsMergeTwin(const uint8_t *key, uint8_t records[0x400]);

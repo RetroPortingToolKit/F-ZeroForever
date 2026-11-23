@@ -3,6 +3,7 @@
 #include "fzero_course_runtime.h"
 #include "fzero_deluxe.h"
 #include "fzero_gameplay.h"
+#include "fzero_practice_legacy.h"
 #include "fzero_practice_runtime.h"
 #include "fzero_vehicles.h"
 #include "fzero_title.h"
@@ -365,6 +366,12 @@ bool FzeroTracksSelectSaveRoot(void) {
   if (!FzeroDeluxeActive() && snprintf(twin,sizeof(twin),"%s/ghosts",RtlSaveRoot())<(int)sizeof(twin))
     FzeroRecordsSetTwin(twin,0x8000);
   else FzeroRecordsSetTwin(NULL,0);
+  if (!FzeroDeluxeActive() && !FzeroTracksActive()) {
+    int length = snprintf(twin, sizeof(twin), "%s/" FZERO_LEGACY_MSU_RECORDS, RtlSaveRoot());
+    if (length >= 0 && (size_t)length < sizeof(twin)) FzeroRecordsAddTwin(twin, 0x800);
+    length = snprintf(twin, sizeof(twin), "%s/" FZERO_LEGACY_MSU_RECORDS "/ghosts", RtlSaveRoot());
+    if (length >= 0 && (size_t)length < sizeof(twin)) FzeroRecordsAddTwin(twin, 0x8000);
+  }
   if (FzeroTracksActive() && strlen(RtlSaveRoot()) + 41 >= 96) {
     FzeroTracksReport(
         "Save root is too long for course records; use a shorter SNESRECOMP_SAVE_ROOT");
