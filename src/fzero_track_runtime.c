@@ -356,7 +356,7 @@ bool FzeroTracksSelectSaveRoot(void) {
   FzeroPracticeGhostRoot(RtlSaveRoot());
   if (!FzeroDeluxeSelectSaveRoot())
     return false;
-  if ((FzeroGameplaySettingsCurrent()->enabled & ~FZERO_RULE_SCANOUT_MASK) || FzeroVehiclesActive()) {
+  if ((FzeroGameplaySettingsCurrent()->enabled & ~FZERO_RULE_PRESENTATION_MASK) || FzeroVehiclesActive()) {
     char hex[65],root[96]; cp_hash_format(FzeroGameplaySignature(),hex);
     if(snprintf(root,sizeof(root),"%s/rules-%.16s",RtlSaveRoot(),hex)>=(int)sizeof(root))return false;
     RtlEnsureSaveDir();RtlSetSaveRoot(root);RtlEnsureSaveDir();

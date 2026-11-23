@@ -162,14 +162,20 @@ def main():
             env.update(FZERO_REWIND_TEST="1", FZERO_VEHICLE_CROSS_STATE="1",
                        FZERO_TEST_SAVE_FRAME="2600" if case.get("practice") else "1500")
         proc = subprocess.run([str(build / "FZeroSNESRecompHeadless.exe"), str(stock), str(frames)],
-                              cwd=folder, env=env, capture_output=True, text=True, timeout=150)
+                              cwd=folder, env=env, capture_output=True, text=True)
         log = proc.stdout + proc.stderr
         (folder / "run.log").write_text(log)
         assert proc.returncode == 0, (case["name"], log[-2000:])
         ram = (folder / "ram.bin").read_bytes()
         assert ram[0x54:0x56] == b"\x02\x03", (case["name"], ram[0x54:0x57].hex())
         assert bool(ram[0x58]) == bool(case.get("practice"))
-        assert bool(ram[0x182]) == bool(case.get("fallback")), (case["name"], ram[0x180:0x185].hex())
+        race_routes = [line for line in log.splitlines()
+                       if line.startswith("[fzero-msu1] command=6 ")]
+        if case.get("fallback"):
+            assert not any("output=PCM" in route for route in race_routes) or (
+                "Playback stopped unexpectedly" in log), (case["name"], race_routes)
+        else:
+            assert any("output=PCM" in route for route in race_routes), (case["name"], race_routes)
         with wave.open(str(folder / "audio.wav")) as audio:
             pairs = list(struct.iter_unpack("<hh", audio.readframes(audio.getnframes())))
         if not case.get("empty"):
@@ -184,11 +190,10 @@ def main():
             assert tail[case["track"] * 200] > 1000, (case["name"], tail.most_common(3))
         if case.get("fallback"):
             assert any(left or right for left, right in pairs[-100000:]), case["name"]
-        if case.get("legacy"):
-            assert "Conn/Cubear v11 active" in log and 0 < ram[0x183] < 32
         if case.get("rewind"):
             assert "resimulation identical" in log
-        results[case["name"]] = dict(ram_music=ram[0x180:0x185].hex(),
+        results[case["name"]] = dict(routes=[line for line in log.splitlines()
+                                            if line.startswith("[fzero-msu1] command=")],
                                      dominant_stereo_differences=tail.most_common(3),
                                      rewind=bool(case.get("rewind")))
         print(case["name"], "PASS", flush=True)

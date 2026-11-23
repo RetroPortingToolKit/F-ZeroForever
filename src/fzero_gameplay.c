@@ -37,7 +37,7 @@ static bool deluxe_content(void) {
 /* The Deluxe program lists its BS leagues natively. Whenever it runs without
  * them, the catalog menu owns league selection. */
 bool FzeroGameplayActive(void) {
-  return (settings.enabled & ~FZERO_RULE_SCANOUT_MASK) ||
+  return (settings.enabled & ~FZERO_RULE_PRESENTATION_MASK) ||
       cars != tracks || settings.vehicle_packs || settings.stock_rebalance;
 }
 const FzeroGameplaySettings *FzeroGameplaySettingsCurrent(void) {
@@ -242,8 +242,7 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
       (*rom)[0xf5958 + i] = (uint8_t)i;
     (*rom)[0xf5963] = 0;
   }
-  if (!(settings.enabled & ~FZERO_RULE_SCANOUT_MASK)) {
-    if (!FzeroMsuApplyConfigured(rom,size)) { snprintf(error,sizeof(error),"%.190s",FzeroMsuError());return false; }
+  if (!(settings.enabled & ~FZERO_RULE_PRESENTATION_MASK)) {
     sign_program(*rom, *size);
     return true;
   }
@@ -269,7 +268,7 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
     /* Complete native adapters below supply these at course boundaries.
      * Installing their donor ASM globally would bypass scoping when a hook
      * declines to run on an unrelated course. */
-    if ((FZERO_RULE_COURSE_MASK | FZERO_RULE_SCANOUT_MASK) & (1u << rule))
+    if ((FZERO_RULE_COURSE_MASK | FZERO_RULE_PRESENTATION_MASK) & (1u << rule))
       continue;
     unsigned patch = rule + 6 + (rule > FZERO_RULE_RAINBOW);
     apply(grown, patch);
@@ -284,7 +283,6 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
    * projection and save hooks remain installed in the shared runtime. */
   cpu_select_program(patched_program, 0, NULL, 0);
   interp_bridge_set_scheduler_aot_policy(0);
-  if (!FzeroMsuApplyConfigured(rom,size)) { snprintf(error,sizeof(error),"%.190s",FzeroMsuError());return false; }
   sign_program(*rom, *size);
   fprintf(stderr, "[cgp-rules] enabled=%08x profiles=%u,%u,%u bs-cars=%d bs-tracks=%d\n",
           settings.enabled, settings.tuning + 1, settings.boost + 1,
@@ -329,12 +327,6 @@ static void rule_hook(CpuState *cpu, uint32_t pc) {
       interp_bridge_pre_opcode_redirect(0x1eb80a);
     }
     break;
-  case CGP_MSU_SELECTOR: {
-    unsigned value = FzeroGameplayMusicTrack(g_ram[0x46] & 7);
-    accum(cpu, value);
-    interp_bridge_pre_opcode_redirect(CGP_MSU_RETURN);
-    break;
-  }
   case 0x008976:
     if (has_fall_down()) {
       g_ram[0xadf] = fall_down() ? 255 : 0;
@@ -580,8 +572,6 @@ void FzeroGameplayInstallHooks(void) {
     interp_bridge_set_pre_opcode_hook(0x009c55, rule_hook);
     interp_bridge_set_pre_opcode_hook(0x009c6b, rule_hook);
   }
-  if (FzeroRuleEnabled(FZERO_RULE_MSU))
-    interp_bridge_set_pre_opcode_hook(CGP_MSU_SELECTOR, rule_hook);
   if (available_rule(FZERO_RULE_DMAG)) {
     interp_bridge_set_pre_opcode_hook(0x00b8e6, rule_hook);
     const unsigned sites[] = {0x0098b1, 0x0098bc, 0x0098ce, 0x0098f1, 0x0098f9, 0x009b59};

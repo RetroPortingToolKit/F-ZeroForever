@@ -442,9 +442,9 @@ int main(int argc, char **argv) {
   }
   const char *music=getenv("SNESRECOMP_MSU1");
   bool music_requested=music && *music && strcmp(music,"off") && strcmp(music,"0");
-  bool configured_music=versus?FzeroMsuConfigureVersus(music,
-      !FzeroMsuHasLegacyPatch(music),argv[1]):
-      FzeroMsuConfigure(music,FzeroRuleEnabled(FZERO_RULE_MSU),argv[1]);
+  bool cgp_music = FzeroRuleEnabled(FZERO_RULE_MSU) || !FzeroMsuHasLegacyPatch(music);
+  bool configured_music=versus?FzeroMsuConfigureVersus(music,cgp_music,argv[1]):
+      FzeroMsuConfigure(music,cgp_music,argv[1]);
   if(!FzeroCalloutsConfigure(capture_video.lap_callouts,capture_video.lap_boost_wav,capture_video.final_lap_wav,capture_video.lap_boost_second_lap_only,capture_video.finish_wav))return 11;
   if(versus && music_requested)
     capture_video.gameplay.enabled|=1u<<FZERO_RULE_MSU;
@@ -860,7 +860,7 @@ int main(int argc, char **argv) {
     FzeroDrawPpuFrame();
     if(mode_test || getenv("FZERO_TEST_VS_MENU"))FzeroPresent(1);
     if(versus && present_every>1 && frame%present_every==0)FzeroPresent(1);
-    FzeroMsuUpdateVersus();
+    FzeroMsuUpdate();
     FzeroCalloutsUpdate();
     if(online_menu_test) {
       static unsigned last_phase=255,last_owner=255;

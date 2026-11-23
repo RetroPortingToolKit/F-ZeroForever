@@ -102,9 +102,8 @@ online play; everyone does not need the same recordings. Current-build saves
 and rewind restore the song's playback position.
 
 For command-line use, `SNESRECOMP_MSU1` can select a `.msu` file, folder or
-filename prefix; `off` overrides a saved enabled setting. `FZERO_MSU1_PATCH`
-can point to the v11 IPS in another folder. Headless CGP music also requires
-`FZERO_RULES=cgp-msu` (or adding `cgp-msu` to other chosen rules).
+filename prefix. Use `off` to override a saved enabled setting. An existing
+`f-zero_msu1.ips` beside the music selects the legacy PCM numbering.
 
 See [preset behavior and validation](CGP_MUSIC_AND_PRESETS.md) and
 [soundtrack provenance / source-build import](../assets/music/README.md).

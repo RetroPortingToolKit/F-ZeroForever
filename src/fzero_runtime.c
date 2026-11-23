@@ -1146,7 +1146,7 @@ static void fzero_on_state_loaded(uint32_t version) {
   g_snes->beamMasterLast = g_cpu.master_cycles;
   interp_bridge_set_master_deadline(0);
   s_loaded_runtime_state = false;
-  FzeroMsuRestoreAudio(g_ram,s_loaded_music);
+  FzeroMsuRestoreAudio(s_loaded_music);
   if (FzeroTracksStateActive() || FzeroLocalEnabled()) RtlApplyExecutionState();
 
   if(FzeroLocalEnabled()) {

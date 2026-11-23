@@ -88,10 +88,8 @@ hosts retain their existing MSU folder/custom soundtrack interface by default.
 - Imported courses load their own native SPC theme before racing, rather than
   the base engine's course metadata. This also covers MSU disabled and missing
   recordings. The full CGP mapping is in [CGP_SNES_MUSIC.md](CGP_SNES_MUSIC.md).
-- A custom pack containing the supported, digest-pinned Conn/Cubear v11
-  `f-zero_msu1.ips` uses that adapter and its standard numbering. Without
-  that patch a custom pack uses CGP numbering. Other patch versions are not
-  supported. The legacy adapter is composed into each derived car image.
+- A custom pack with the legacy `f-zero_msu1.ips` filename uses its numbered
+  PCM files. The host audio player uses this filename as a numbering marker.
 - Save/load and rewind resume the saved song position, including loop and
   resampling phase. States keep a small playback bookmark and catalog identity;
   the recordings stay in the installed music folders. Missing recordings fall

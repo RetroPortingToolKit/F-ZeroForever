@@ -3034,7 +3034,7 @@ static int run_game(int argc, char **argv) {
       diagnostic_start = FzeroDiagnosticsBegin();
       FzeroDrawPpuFrame();
       if(online)FzeroNetplayFinish();
-      FzeroMsuUpdateVersus();
+      FzeroMsuUpdate();
       FzeroCalloutsUpdate();
       FzeroDiagnosticsEnd(FZERO_DIAG_PPU, diagnostic_start);
       FzeroCaptureAfter();

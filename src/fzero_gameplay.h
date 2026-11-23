@@ -30,7 +30,7 @@ typedef enum FzeroRule {
 #define FZERO_RULE_ACTIVE_MASK (((1u << FZERO_RULE_COUNT) - 1u) & ~((1u << FZERO_RULE_CREDITS) | (1u << FZERO_RULE_RETIRED_FOG) | FZERO_RULE_COURSE_MASK))
 #define FZERO_RULE_SELECTABLE_MASK (FZERO_RULE_ACTIVE_MASK & ~7u)
 #define FZERO_RULE_DEFAULT_MASK (1u << FZERO_RULE_LEGEND)
-#define FZERO_RULE_SCANOUT_MASK (1u << FZERO_RULE_ANIMATION)
+#define FZERO_RULE_PRESENTATION_MASK ((1u << FZERO_RULE_ANIMATION) | (1u << FZERO_RULE_MSU))
 typedef struct FzeroGameplaySettings {
   uint32_t enabled;
   unsigned tuning, boost, exhaust; /* 0=P1, 1=P2, 2=P3. Retained while off. */

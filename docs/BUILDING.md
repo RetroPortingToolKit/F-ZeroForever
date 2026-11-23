@@ -64,9 +64,9 @@ The Linux AppImage runs `tools/test_appimage_layout.sh` before it is sealed.
 macOS releases are not notarized; players remove the quarantine attribute.
 
 Run the ROM-free regression suites with `ctest --test-dir build --output-on-failure`.
-With your local ROM and the upstream patch ZIP, `tests/test_msu_integration.py`
-checks stock/Deluxe playback using generated test tones, missing-track fallback
-and invalid-patch rejection. On Windows, `tests/test_desktop_integration.py`
+With your local ROM, `tests/test_msu_integration.py` checks Vanilla Practice
+music using generated test tones, missing-track fallback and matching race
+state with music enabled and disabled. On Windows, `tests/test_desktop_integration.py`
 additionally checks real launcher persistence, imported shaders, controller
 overlays and save/load. Both scripts accept `--help` and keep their test data
 under ignored `captures/` directories; neither bundles music or a shader.

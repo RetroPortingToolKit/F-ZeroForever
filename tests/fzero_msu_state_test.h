@@ -31,7 +31,7 @@ static bool msu_state_check(long frame) {
   for(unsigned disk=0;ok && disk<2;++disk) {
     ok=disk?RtlLoadSnapshot(path):RtlLoadSnapshotFromMemory(saved,size);
     if(!ok)break;
-    FzeroMsuUpdateVersus(); /* must acknowledge the load without restarting */
+    FzeroMsuUpdate(); /* Acknowledge the load while keeping the restored cursor. */
     msu1_capture_playback(after);
     ok=!memcmp(bookmark,after,sizeof(after));
     msu_state_samples(actual);
@@ -41,7 +41,7 @@ static bool msu_state_check(long frame) {
     size_t n=RtlRollbackSaveToMemory(other,cap);
     msu_state_samples(actual);msu1_capture_playback(live);
     ok=n && RtlRollbackLoadFromMemory(other,n);
-    FzeroMsuUpdateVersus();msu1_capture_playback(after);
+    FzeroMsuUpdate();msu1_capture_playback(after);
     ok=ok && !memcmp(live,after,sizeof(after));
   }
   if(ok) {
@@ -50,7 +50,7 @@ static bool msu_state_check(long frame) {
     snes_rewind_note_frame();msu_state_samples(actual);snes_rewind_note_frame();
     ok=ok && snes_rewind_open();
     if(ok){snes_rewind_step(-1);snes_rewind_commit();}
-    FzeroMsuUpdateVersus();msu1_capture_playback(after);
+    FzeroMsuUpdate();msu1_capture_playback(after);
     ok=ok && !memcmp(bookmark,after,sizeof(after));
     msu_state_samples(actual);ok=ok && !memcmp(expected,actual,sizeof(actual));
     snes_rewind_shutdown();
