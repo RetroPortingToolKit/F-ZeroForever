@@ -26,9 +26,11 @@ void FzeroHdmaLine(FzeroHdma *c, FzeroHdmaBus *bus) {
   if (transfer || (c->count & 0x80)) {
     unsigned mode = c->mode & 7;
     for (unsigned i = 0; i < lengths[mode]; ++i) {
-      uint8_t value = read_byte(bus, c->indirect ? c->indirect_bank : c->bank,
-                               c->indirect ? &c->indirect_address : &c->table);
-      bus->write(bus->context, (uint8_t)(c->reg + offsets[mode][i]), value);
+      uint8_t bank = c->indirect ? c->indirect_bank : c->bank;
+      uint16_t *address = c->indirect ? &c->indirect_address : &c->table;
+      uint32_t source = (uint32_t)bank << 16 | *address;
+      uint8_t value = read_byte(bus, bank, address);
+      bus->write(bus->context, (uint8_t)(c->reg + offsets[mode][i]), value, source);
     }
   }
   --c->count;

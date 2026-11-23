@@ -1,4 +1,5 @@
 #include "fzero_mods.h"
+#include "fzero_mod_presets.h"
 #include "fzero_tracks_mods.h"
 #include "fzero_tracks.h"
 #include "fzero_title.h"
@@ -477,14 +478,16 @@ static int resource_set(void *ctx,const char *p,const char *f,const char *id,con
 }
 
 static const RecompLauncherCModPreset presets[] = {
-  {"vanilla", "Vanilla", "Original cars, rules, title and SNES music. Turns off Track Pack Loader and BS content. Personal settings stay as selected."},
-  {"satellaview", "Satellaview", "Original cars plus the four BS cars and ten BS courses, with their stock behavior and SNES music. Turns off Track Pack Loader and CGP vehicles/rules. Personal settings stay as selected."},
-  {"cgp", "Community Grand Prix", "All installed course packs, all twelve CGP cars and their authored rebalances, every CGP rule including Legend, Community Grand Prix title and MSU-1 music. Keeps your soundtrack choice and unrelated settings; disables conflicting BS content."}
+  {"vanilla", "Vanilla", "Original cars, rules, title and SNES music. Turns off Track Pack Loader and BS content. Personal settings stay as selected.", 0},
+  {"satellaview", "Satellaview", "Original cars plus the four BS cars and ten BS courses, with their stock behavior and SNES music. Turns off Track Pack Loader and CGP vehicles/rules. Personal settings stay as selected.", 0},
+  {"cgp", "Community Grand Prix", "All installed course packs, all twelve CGP cars and their authored rebalances, every CGP rule including Legend, Community Grand Prix title and MSU-1 music. Keeps your soundtrack choice and unrelated settings; disables conflicting BS content.", 0}
 };
-static int preset_count(void *ctx) { (void)ctx; return 3; }
+enum { BUILTIN_PRESETS = sizeof(presets) / sizeof(*presets) };
+static int preset_count(void *ctx) { (void)ctx; return BUILTIN_PRESETS + FzeroSavedPresetsCount(); }
 static int preset_get(void *ctx, int i, RecompLauncherCModPreset *out) {
   (void)ctx;
-  if (i < 0 || i >= 3 || !out) return 0;
+  if (i < 0 || !out) return 0;
+  if (i >= BUILTIN_PRESETS) return FzeroSavedPresetGet(i - BUILTIN_PRESETS, out);
   *out = presets[i];
   if (i == 2 && !has_bundled_music)
     COPY(out->description, "All installed course packs, all twelve CGP cars and their rebalances, every CGP rule including Legend, and Community Grand Prix title. Enables pack music; uses SNES audio until recordings are supplied. Disables conflicting BS content; keeps unrelated choices.");
@@ -493,6 +496,8 @@ static int preset_get(void *ctx, int i, RecompLauncherCModPreset *out) {
 static const char *preset_current(void *ctx, const RecompLauncherCSettings *s) {
   (void)ctx;
   if (!s) return "";
+  const char *saved = FzeroSavedPresetCurrent(video, s);
+  if (*saved) return saved;
   const CpPack *cgp = cp_catalog_find(FzeroTracksCatalog(), "cgp");
   unsigned rules = video->gameplay.enabled & ~(1u << FZERO_RULE_MSU);
   unsigned all = FZERO_RULE_SELECTABLE_MASK & ~(1u << FZERO_RULE_MSU);
@@ -512,8 +517,12 @@ static int preset_apply(void *ctx, const char *id, RecompLauncherCSettings *s) {
   (void)ctx;
   if (!s || !id) return 0;
   unsigned index;
-  for (index=0; index<3; ++index) if (!strcmp(id,presets[index].id)) break;
-  if (index == 3) return 0;
+  for (index=0; index<BUILTIN_PRESETS; ++index) if (!strcmp(id,presets[index].id)) break;
+  if (index == BUILTIN_PRESETS) {
+    if (FzeroSavedPresetApply(id, video, s)) { error_text[0] = 0; return 1; }
+    COPY(error_text, FzeroSavedPresetError());
+    return 0;
+  }
   const CpPack *cgp = cp_catalog_find(FzeroTracksCatalog(), "cgp");
   if (index == 2 && (!cgp || FzeroTracksHidden(cgp) || !FzeroTitleFind("cgp"))) {
     COPY(error_text,"Community Grand Prix track pack is unavailable"); return 0;
@@ -531,9 +540,25 @@ static int preset_apply(void *ctx, const char *id, RecompLauncherCSettings *s) {
   return 1;
 }
 
+static int preset_store(void *ctx, const char *id, const char *name,
+                        const RecompLauncherCSettings *settings) {
+  (void)ctx;
+  bool ok = FzeroSavedPresetStore(id, name, video, settings);
+  COPY(error_text, FzeroSavedPresetError());
+  return ok;
+}
+
+static int preset_delete(void *ctx, const char *id) {
+  (void)ctx;
+  bool ok = FzeroSavedPresetDelete(id);
+  COPY(error_text, FzeroSavedPresetError());
+  return ok;
+}
+
 const RecompLauncherCModProvider *FzeroModsProvider(FzeroVideoSettings *settings, const char *path, bool bundled_music) {
   static RecompLauncherCModProvider provider;
   video = settings; config_path = path; error_text[0] = 0;
+  FzeroSavedPresetsLoad(path);
   has_bundled_music = bundled_music;
   video->gameplay.enabled &= FZERO_RULE_SELECTABLE_MASK;
   if(video->bs_deluxe)video->gameplay.vehicle_packs=video->gameplay.stock_rebalance=0;
@@ -550,6 +575,7 @@ const RecompLauncherCModProvider *FzeroModsProvider(FzeroVideoSettings *settings
   provider.commit = commit; provider.last_error = last_error;
   provider.preset_count = preset_count; provider.preset_get = preset_get;
   provider.preset_current = preset_current; provider.preset_apply = preset_apply;
+  provider.preset_store = preset_store; provider.preset_delete = preset_delete;
   const RecompLauncherCModProvider *tracks = FzeroTrackModsProvider();
   provider.feature_resource_count = resources;
   provider.feature_resource_get = resource_get;

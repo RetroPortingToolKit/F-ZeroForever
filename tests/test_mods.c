@@ -457,6 +457,46 @@ int main(int argc,char **argv) {
     CHECK(p->preset_apply(NULL,"vanilla",&io) && !io.msu1_enabled);
     CHECK(!strcmp(io.msu1_dir,custom ? "my external CGP music" : ""));
   }
+  {
+    remove("test-saved-mods.ini.preset-01.ini");
+    RecompLauncherCSettings io = {.volume = 37, .rewind_enabled = 1, .fullscreen = 2};
+    FzeroVideoDefaults(&s);
+    p = FzeroModsProvider(&s, "test-saved-mods.ini", false);
+    CHECK(p->preset_count(NULL) == 3 && p->preset_store && p->preset_delete);
+    CHECK(p->preset_apply(NULL, "cgp", &io));
+    s.gameplay.practice_ghosts = false;
+    s.hd_mode7 = false;
+    CHECK(!p->preset_store(NULL, NULL, "vanilla", &io));
+    CHECK(!p->preset_store(NULL, NULL, "    ", &io));
+    CHECK(p->preset_store(NULL, NULL, "Time Trials", &io));
+    CHECK(!p->preset_store(NULL, NULL, "time trials", &io));
+    CHECK(p->preset_count(NULL) == 4);
+    RecompLauncherCModPreset saved;
+    CHECK(p->preset_get(NULL, 3, &saved) && saved.editable && !strcmp(saved.name, "Time Trials"));
+    char id[sizeof(saved.id)];
+    strcpy(id, saved.id);
+    CHECK(!strcmp(p->preset_current(NULL, &io), id));
+
+    CHECK(p->preset_apply(NULL, "vanilla", &io) && !s.gameplay.practice_ghosts);
+    s.gameplay.practice_ghosts = true;
+    s.hd_mode7 = true;
+    io.volume = 83;
+    p = FzeroModsProvider(&s, "test-saved-mods.ini", false);
+    CHECK(p->preset_apply(NULL, id, &io));
+    CHECK(!s.gameplay.practice_ghosts && !s.hd_mode7 && s.gameplay.vehicle_packs == 7);
+    CHECK(s.gameplay.stock_rebalance == 15 && FzeroTrackLoaderEnabled());
+    CHECK(io.msu1_enabled && io.volume == 83 && io.rewind_enabled == 1 && io.fullscreen == 2);
+    CHECK(p->preset_store(NULL, id, "Practice Grid", NULL));
+    s.gameplay.practice_ghosts = true;
+    CHECK(p->preset_store(NULL, id, NULL, &io));
+    s.gameplay.practice_ghosts = false;
+    p = FzeroModsProvider(&s, "test-saved-mods.ini", false);
+    CHECK(p->preset_get(NULL, 3, &saved) && !strcmp(saved.name, "Practice Grid") && !strcmp(saved.id, id));
+    CHECK(p->preset_apply(NULL, id, &io) && s.gameplay.practice_ghosts);
+    CHECK(p->preset_delete(NULL, id));
+    p = FzeroModsProvider(&s, "test-mods.ini", false);
+    CHECK(p->preset_count(NULL) == 3 && !p->preset_apply(NULL, id, &io));
+  }
   /* The Game FPS control is optional and independent of recording/presentation. */
   FzeroVideoDefaults(&s);
   p=FzeroModsProvider(&s,"test-mods.ini",false);

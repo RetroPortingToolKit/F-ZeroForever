@@ -56,5 +56,5 @@ bool FzeroCourseLayoutRead(const char *path, FzeroCourseLayout *out, char *error
 bool FzeroCourseExtract(const uint8_t *rom, size_t size, const FzeroCourseLayout *layout,
                         unsigned index, FzeroCourse *out, char *error, size_t cap);
 void FzeroCourseCyclePalette(const FzeroCourse *course, uint8_t palette[0xe0]);
-/* Authored native HDMA data, independent of HD rendering and texture filtering. */
-bool FzeroCourseApplyHorizonFog(const FzeroCourse *course, uint8_t *rom, size_t size);
+/* Resolve an authored fixed-color transfer at scanout. Other writes keep their values. */
+uint8_t FzeroCourseHorizonColor(const FzeroCourse *course, uint32_t source, uint8_t value);

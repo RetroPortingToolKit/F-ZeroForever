@@ -29,6 +29,8 @@ typedef struct FzeroGhostRun {
   unsigned id; /* Stable within the course/rules library. */
   unsigned ticks, best_lap_ticks;
   unsigned machine;
+  unsigned finish_centiseconds; /* Zero if the original timing was unavailable. */
+  uint8_t legacy_source[32]; /* Digest of the imported stream, or zero for a new run. */
 } FzeroGhostRun;
 
 typedef enum FzeroGhostResult {
@@ -54,10 +56,12 @@ unsigned FzeroGhostCount(const FzeroGhostLibrary *library);
 bool FzeroGhostGet(const FzeroGhostLibrary *library, unsigned index, FzeroGhostRun *run);
 bool FzeroGhostSelect(FzeroGhostLibrary *library, unsigned index);
 bool FzeroGhostPoseAt(const FzeroGhostLibrary *library, unsigned tick, FzeroGhostPose *pose);
+bool FzeroGhostHasLegacy(const FzeroGhostLibrary *library, const uint8_t digest[32]);
 
 void FzeroGhostBeginRun(FzeroGhostLibrary *library, unsigned machine);
 void FzeroGhostRecord(FzeroGhostLibrary *library, FzeroGhostPose pose);
-FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap_ticks);
+FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap_ticks,
+                                  unsigned finish_centiseconds, const uint8_t legacy_source[32]);
 
 #ifdef __cplusplus
 }

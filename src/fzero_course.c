@@ -474,15 +474,16 @@ bool FzeroCourseExtract(const uint8_t *r, size_t n, const FzeroCourseLayout *l, 
             : fail(e, cap, "Course resources contain invalid pointers, sizes or checkpoints");
 }
 
-bool FzeroCourseApplyHorizonFog(const FzeroCourse *c, uint8_t *rom, size_t size) {
-  if (!rom || size < 0x46fcf) return false;
-  /* Smooth_Fog.asm changes the first three native fog scanlines at
-   * $08:EF9F/$08:EFCC. Restore USA shading for every other course, including
-   * stock courses and state loads across packs. These are data bytes only. */
-  static const uint8_t native[6] = {0x6a, 0x6c, 0x6e, 0xe6, 0xe7, 0xe8};
-  static const uint8_t authored[6] = {0x61, 0x63, 0x68, 0xe1, 0xe4, 0xe8};
-  const uint8_t *values = c && (c->required & FZERO_COURSE_SOFT_HORIZON_FOG) ? authored : native;
-  memcpy(rom + 0x46f9f, values, 3);
-  memcpy(rom + 0x46fcc, values + 3, 3);
-  return true;
+uint8_t FzeroCourseHorizonColor(const FzeroCourse *c, uint32_t source, uint8_t value) {
+  if (!c || !(c->required & FZERO_COURSE_SOFT_HORIZON_FOG)) return value;
+  /* The two ramps feed COLDATA. Supply the authored leading colors at the
+   * fixed-color consumer while the ROM reads and HDMA latch stay original. */
+  static const uint8_t first[] = {0x61, 0x63, 0x68};
+  static const uint8_t second[] = {0xe1, 0xe4, 0xe8};
+  source &= 0x7fffff;
+  if (source >= 0x08ef9f && source < 0x08ef9f + sizeof(first))
+    return first[source - 0x08ef9f];
+  if (source >= 0x08efcc && source < 0x08efcc + sizeof(second))
+    return second[source - 0x08efcc];
+  return value;
 }

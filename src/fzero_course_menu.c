@@ -5,6 +5,8 @@
 #include "fzero_deluxe.h"
 #include "fzero_records.h"
 #include "fzero_native_font.h"
+#include "fzero_practice_runtime.h"
+#include "fzero_machine.h"
 #include "snes/cart.h"
 #include "snes/ppu.h"
 extern Snes *g_snes;
@@ -290,21 +292,75 @@ static bool league_panel_loaded(void) {
   }
   return false;
 }
+static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
+  FzeroPracticeGhostView view = FzeroPracticeGhostViewAt(ram);
+  if (view.panel == FZERO_GHOST_PANEL_RIVAL) {
+    if (view.selected) {
+      box(c, 119, 148, 82, 18, 0xff000000);
+      text(c, 136, 153, "NO RIVAL", 8, 0xff808080);
+      text(c, 124, 173, ">", 1, 0xffffff00);
+    }
+    text(c, 136, 173, "GHOST", 5, view.selected ? 0xffffff55 : 0xff808080);
+    return;
+  }
+  if (view.panel == FZERO_GHOST_PANEL_CHOOSE) {
+    box(c, 66, 174, 181, 48, 0xff000000);
+    if (view.error != FZERO_GHOST_OK) {
+      text(c, 73, 179, "GHOST UNAVAILABLE", 21, 0xffffff8a);
+    } else if (!view.count) {
+      text(c, 73, 179, "NO SAVED GHOSTS", 21, 0xffd0f4f8);
+      text(c, 73, 191, "RACE TO RECORD ONE", 21, 0xffd0f4f8);
+    } else {
+      char label[32];
+      unsigned time = view.run.finish_centiseconds;
+      text(c, 73, 178, FzeroMachineName(view.run.machine), 21, 0xffffff55);
+      if (time)
+        snprintf(label, sizeof(label), "%u:%02u.%02u  %u/%u", time / 6000,
+                 time / 100 % 60, time % 100, view.index + 1, view.count);
+      else
+        snprintf(label, sizeof(label), "LEGACY RUN  %u/%u", view.index + 1, view.count);
+      text(c, 73, 189, label, 21, 0xffd0f4f8);
+    }
+    if (view.count > 1) text(c, 73, 200, "L/R GHOST", 21, 0xffd0f4f8);
+    text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, 0xffd0f4f8);
+    return;
+  }
+  if (view.panel == FZERO_GHOST_PANEL_SAVE || view.panel == FZERO_GHOST_PANEL_SAVED) {
+    box(c, 38, 125, 180, 59, 0xffd6b842);
+    box(c, 40, 127, 176, 55, 0xff000000);
+    if (view.panel == FZERO_GHOST_PANEL_SAVED) {
+      text(c, 76, 137, "GHOST SAVED", 11, 0xffffff55);
+      text(c, 76, 160, "A TO CONTINUE", 14, 0xffd0f4f8);
+      return;
+    }
+    text(c, 80, 137, "SAVE GHOST?", 11, 0xffffff55);
+    if (view.error != FZERO_GHOST_OK)
+      text(c, 56, 150, view.error == FZERO_GHOST_FULL ? "STORAGE LIMIT" : "SAVE FAILED", 19, 0xffffff8a);
+    text(c, 80, 166, view.selected ? "> YES    NO" : "  YES  > NO", 14, 0xffd0f4f8);
+  }
+}
+
 void FzeroTracksOverlay(uint32_t *pixels, unsigned width, unsigned height, size_t pitch,const uint8_t *ram) {
   FzeroRecordsOverlay(pixels, width, height, pitch,ram);
-  if (!pixels || !FzeroTracksMenuVisibleAt(ram) || !league_panel_loaded() || height < 224 || height % 224)
+  if (!pixels || height < 224 || height % 224)
     return;
-  static bool logged;
-  if (!logged) {
-    fprintf(stderr, "[track-library] in-game menu overlay %ux%u\n", width, height);
-    logged = true;
-  }
   unsigned scale = height / 224;
   if (width / scale < 256)
     return;
   unsigned brightness = g_snes->ppu->inidisp;
   Canvas c = {pixels, pitch, scale, (width / scale - 256) / 2,
               brightness & 128 ? 0 : brightness & 15};
+  if (c.brightness) {
+    FzeroPracticeGhostDrawShip(pixels, width, height, pitch, ram);
+    practice_ghost_overlay(c, ram);
+  }
+  if (!FzeroTracksMenuVisibleAt(ram) || !league_panel_loaded())
+    return;
+  static bool logged;
+  if (!logged) {
+    fprintf(stderr, "[track-library] in-game menu overlay %ux%u\n", width, height);
+    logged = true;
+  }
   unsigned count = FzeroTracksRuntimeCount(), selected = FzeroTracksMenuIndex();
   bool practice = ram[0x58] != 0;
   bool choosing_class = !practice && FzeroTracksClassSelectedAt(ram);

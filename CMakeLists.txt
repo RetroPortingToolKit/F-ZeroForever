@@ -45,7 +45,7 @@ target_include_directories(fzero_tracks SYSTEM PRIVATE "${RAPIDJSON_INCLUDE_DIR}
 include("${SNESRECOMP_ROOT}/runner/data_packs.cmake")
 snesrecomp_target_data_packs(fzero_tracks)
 target_link_libraries(fzero_tracks PUBLIC LibXml2::LibXml2 PNG::PNG ${GIF_LIBRARY})
-add_library(fzero_practice_ghosts STATIC src/fzero_practice_ghosts.cpp)
+add_library(fzero_practice_ghosts STATIC src/fzero_practice_ghosts.cpp src/fzero_practice_legacy.c)
 target_link_libraries(fzero_practice_ghosts PUBLIC fzero_tracks)
 add_executable(FZeroInspectCourses tools/inspect_courses.c)
 target_link_libraries(FZeroInspectCourses PRIVATE fzero_tracks)
@@ -188,7 +188,7 @@ if(BUILD_TESTING)
     target_include_directories(fzero_content_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/src" "${RECOMP_UI_ROOT}/src" "${RAPIDJSON_INCLUDE_DIR}")
     snesrecomp_target_data_packs(fzero_content_ui_tests)
     add_test(NAME fzero_content_ui COMMAND fzero_content_ui_tests)
-    add_executable(fzero_mods_tests tests/test_mods.c src/fzero_mods.c src/fzero_tracks_mods.c src/fzero_netplay_mods.c)
+    add_executable(fzero_mods_tests tests/test_mods.c src/fzero_mods.c src/fzero_mod_presets.c src/fzero_tracks_mods.c src/fzero_netplay_mods.c)
     target_include_directories(fzero_mods_tests PRIVATE "${RECOMP_UI_ROOT}/src")
     target_link_libraries(fzero_mods_tests PRIVATE fzero_video fzero_tracks fzero_callouts fzero_test_audio)
     if(NOT MSVC)
@@ -299,6 +299,7 @@ set(FZERO_HOST_SOURCES
     src/fzero_diagnostics.c
     src/fzero_fault.c
     src/fzero_mods.c
+    src/fzero_mod_presets.c
     src/fzero_tracks_mods.c
     src/fzero_hotkeys.c
     src/fzero_gamepad.c
@@ -332,7 +333,8 @@ function(configure_fzero_target target)
     target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_compile_definitions(${target} PRIVATE SNESRECOMP_BUILD_VERSION="${SNESRECOMP_BUILD_VERSION}")
     target_sources(${target} PRIVATE src/fzero_deluxe.c src/fzero_gameplay.c src/fzero_vehicles.c src/fzero_state_mode.c src/fzero_msu.c src/fzero_track_runtime.c src/fzero_course_hooks.c src/fzero_course_menu.c src/fzero_course_saves.c src/fzero_records.c)
-    target_link_libraries(${target} PRIVATE fzero_tracks)
+    target_link_libraries(${target} PRIVATE fzero_tracks fzero_practice_ghosts)
+    target_sources(${target} PRIVATE src/fzero_practice_runtime.c)
     if(FZERO_DELUXE_GEN_DIR)
         target_sources(${target} PRIVATE $<TARGET_OBJECTS:fzero_deluxe_native>
                                          "${FZERO_DELUXE_PAYLOAD_SOURCE}")

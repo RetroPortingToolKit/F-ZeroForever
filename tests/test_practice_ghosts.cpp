@@ -1,4 +1,5 @@
 #include "fzero_practice_ghosts.h"
+#include "fzero_practice_legacy.h"
 
 #include <array>
 #include <chrono>
@@ -28,10 +29,45 @@ static void record(FzeroGhostLibrary *library, unsigned machine, unsigned ticks,
   FzeroGhostBeginRun(library, machine);
   for (unsigned frame = 0; frame < ticks; ++frame)
     FzeroGhostRecord(library, {x, static_cast<uint16_t>(frame), 0x1234, 0x789a});
-  CHECK(FzeroGhostSaveRun(library, ticks / 2) == FZERO_GHOST_OK);
+  CHECK(FzeroGhostSaveRun(library, ticks / 2, ticks * 10, nullptr) == FZERO_GHOST_OK);
+}
+
+static void legacy_codec() {
+  std::array<uint8_t, 0x8000> sram{};
+  auto word = [&](unsigned offset, unsigned value) {
+    sram[offset] = static_cast<uint8_t>(value);
+    sram[offset + 1] = static_cast<uint8_t>(value >> 8);
+  };
+  const uint8_t stream[] = {3, 0x7e, 5, 1, 0x81, 0x81, 0x7c, 0x7f, 7, 0x80};
+  unsigned checksum = 0;
+  for (unsigned i = 0; i < sizeof(stream); ++i) {
+    sram[0x4200 + i] = stream[i];
+    checksum += stream[i];
+  }
+  word(0x3a0, 1);
+  word(0x3a2, 0x4200);
+  word(0x3a4, sizeof(stream));
+  word(0x3a6, checksum);
+  word(0x3a8, 3);
+  sram[0x3aa] = 0x82;
+  FzeroLegacyGhost ghost;
+  CHECK(FzeroLegacyGhostRead(sram.data(), sram.size(), &ghost));
+  CHECK(ghost.course == 1 && ghost.machine == 0x82 && ghost.samples == 3);
+  FzeroGhostPose poses[6];
+  FzeroGhostPose start{8190, 1, 0, 0};
+  CHECK(FzeroLegacyGhostDecode(&ghost, start, poses, 6));
+  CHECK(poses[0].x == 8190 && poses[0].facing == 0x3000);
+  CHECK(poses[1].x == 1 && poses[1].y == 4095 && poses[1].height == 0x500);
+  CHECK(poses[1].x == poses[2].x && poses[1].facing == poses[2].facing);
+  CHECK(poses[5].x == 7 && poses[5].y == 4091 && poses[5].height == 0x300 && poses[5].facing == 0x3800);
+  ghost.length = 3;
+  CHECK(!FzeroLegacyGhostDecode(&ghost, start, poses, 6));
+  sram[0x4200] ^= 1;
+  CHECK(!FzeroLegacyGhostRead(sram.data(), sram.size(), &ghost));
 }
 
 int main() {
+  legacy_codec();
   FzeroGameplaySettings settings{};
   settings.practice_ghosts = true;
   const auto key = key_for(settings);
@@ -80,6 +116,7 @@ int main() {
     FzeroGhostRun run;
     CHECK(FzeroGhostGet(reader.get(), i, &run));
     CHECK(run.id == ids[i] && run.machine == machines[i] && run.best_lap_ticks == run.ticks / 2);
+    CHECK(run.finish_centiseconds == run.ticks * 10);
     CHECK(FzeroGhostSelect(reader.get(), i));
     FzeroGhostPose pose;
     CHECK(FzeroGhostPoseAt(reader.get(), run.ticks - 1, &pose));

@@ -6,7 +6,7 @@
  * bus space and must not require every source to have a host ROM pointer. */
 typedef struct FzeroHdmaBus {
   uint8_t (*read)(void *context, uint32_t address, uint8_t open_bus);
-  void (*write)(void *context, uint8_t reg, uint8_t value);
+  void (*write)(void *context, uint8_t reg, uint8_t value, uint32_t source);
   void *context;
   uint8_t latch;
 } FzeroHdmaBus;

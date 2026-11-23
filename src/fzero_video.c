@@ -226,16 +226,12 @@ bool FzeroVideoLoad(FzeroVideoSettings *s, const char *path) {
   return valid;
 }
 
-bool FzeroVideoSave(const FzeroVideoSettings *s, const char *path) {
+bool FzeroVideoWriteSettings(const FzeroVideoSettings *s, FILE *f) {
   if(s->local_players<2 || s->local_players>4)return false;
   if(!memchr(s->finish_wav,0,sizeof(s->finish_wav)) || strpbrk(s->finish_wav,"\r\n"))return false;
   if(!memchr(s->lap_boost_wav,0,sizeof(s->lap_boost_wav)) ||
       !memchr(s->final_lap_wav,0,sizeof(s->final_lap_wav)) ||
       strpbrk(s->lap_boost_wav,"\r\n") || strpbrk(s->final_lap_wav,"\r\n"))return false;
-  char temporary[1024];
-  if (snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return false;
-  FILE *f = fopen(temporary, "w");
-  if (!f) return false;
   bool ok = fprintf(f, "[FZeroVideo]\nEnhancedRenderer=%d\nAspect=%s\nPresentationEnabled=%d\nPresentationFPS=%u\nBSVehicles=%d\nBSTracks=%d\nCGPRules=%u\nCGPTuning=%u\nCGPBoost=%u\nCGPExhaust=%u\nCGPCars=%u\nCGPStockRebalance=%u\nMode7Enabled=%d\nMode7Scale=%u\nMode7Supersample=%u\nDiagnostics=%d\n",
                     s->enhanced, FzeroAspectName(s->aspect), s->fps_enabled, s->fps, s->bs_deluxe, s->bs_tracks, s->gameplay.enabled & FZERO_RULE_SELECTABLE_MASK,
                     s->gameplay.tuning, s->gameplay.boost, s->gameplay.exhaust,
@@ -249,6 +245,15 @@ bool FzeroVideoSave(const FzeroVideoSettings *s, const char *path) {
   if(fprintf(f,"LocalPlayers=%u\nFinishWav=%s\n",s->local_players,s->finish_wav)<0)ok=false;
   if(fprintf(f,"LapCallouts=%d\nLapBoostSecondLapOnly=%d\nLapBoostWav=%s\nFinalLapWav=%s\n",
       s->lap_callouts,s->lap_boost_second_lap_only,s->lap_boost_wav,s->final_lap_wav)<0)ok=false;
+  return ok;
+}
+
+bool FzeroVideoSave(const FzeroVideoSettings *s, const char *path) {
+  char temporary[1024];
+  if (snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return false;
+  FILE *f = fopen(temporary, "w");
+  if (!f) return false;
+  bool ok = FzeroVideoWriteSettings(s, f);
   if (fclose(f)) ok = false;
   if (ok) {
 #ifdef _WIN32

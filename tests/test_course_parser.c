@@ -188,26 +188,18 @@ int main(void) {
   l.required = l.course_required[0] = 0;
   CHECK(FzeroCourseExtract(rom, sizeof(rom), &l, 0, c, error, sizeof(error)));
   CHECK(!memcmp(c->hash, previous->hash, 32));
-  /* Presentation requirements retain record identity and restore stock data
-   * when leaving the owning pack. Only the six authored bytes may change. */
+  /* Presentation requirements retain record identity. Only the six authored
+   * fixed-color transfers change, and only on the owning course. */
   l.required = FZERO_COURSE_SOFT_HORIZON_FOG;
   CHECK(FzeroCourseExtract(rom, sizeof(rom), &l, 0, c, error, sizeof(error)));
   CHECK(!memcmp(c->hash, previous->hash, 32));
-  uint8_t *fog_rom = malloc(0x80000);
-  CHECK(fog_rom != NULL);
-  memset(fog_rom, 0xaa, 0x80000);
-  CHECK(!FzeroCourseApplyHorizonFog(c, NULL, 0x80000));
-  CHECK(!FzeroCourseApplyHorizonFog(c, fog_rom, 0x46fce));
-  CHECK(fog_rom[0x46f9f] == 0xaa);
-  CHECK(FzeroCourseApplyHorizonFog(c, fog_rom, 0x80000));
-  CHECK(!memcmp(fog_rom + 0x46f9f, "\x61\x63\x68", 3));
-  CHECK(!memcmp(fog_rom + 0x46fcc, "\xe1\xe4\xe8", 3));
-  CHECK(fog_rom[0x46f9e] == 0xaa && fog_rom[0x46fa2] == 0xaa);
-  CHECK(fog_rom[0x46fcb] == 0xaa && fog_rom[0x46fcf] == 0xaa);
-  CHECK(FzeroCourseApplyHorizonFog(NULL, fog_rom, 0x80000));
-  CHECK(!memcmp(fog_rom + 0x46f9f, "\x6a\x6c\x6e", 3));
-  CHECK(!memcmp(fog_rom + 0x46fcc, "\xe6\xe7\xe8", 3));
-  free(fog_rom);
+  for (unsigned i = 0; i < 3; ++i) {
+    CHECK(FzeroCourseHorizonColor(c, 0x08ef9f + i, 0xaa) == (uint8_t)"\x61\x63\x68"[i]);
+    CHECK(FzeroCourseHorizonColor(c, 0x88efcc + i, 0xaa) == (uint8_t)"\xe1\xe4\xe8"[i]);
+  }
+  CHECK(FzeroCourseHorizonColor(c, 0x08ef9e, 0xaa) == 0xaa);
+  CHECK(FzeroCourseHorizonColor(c, 0x08efcf, 0xaa) == 0xaa);
+  CHECK(FzeroCourseHorizonColor(NULL, 0x08ef9f, 0xaa) == 0xaa);
   l.required = 0;
   CHECK(FzeroCourseExtract(rom, sizeof(rom), &l, 0, c, error, sizeof(error)));
   /* Audio must be bounded, can explicitly select song zero, and must never

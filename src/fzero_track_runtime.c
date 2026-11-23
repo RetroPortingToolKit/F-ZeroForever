@@ -3,6 +3,7 @@
 #include "fzero_course_runtime.h"
 #include "fzero_deluxe.h"
 #include "fzero_gameplay.h"
+#include "fzero_practice_runtime.h"
 #include "fzero_vehicles.h"
 #include "fzero_title.h"
 #include "fzero_records.h"
@@ -28,10 +29,6 @@ static const CpPack *active_pack;
 static const CpCup *active_cup;
 static unsigned menu_index;
 static uint8_t identity[32];
-/* The stock cartridge's rule signature while only Practice ghosts select the
- * Deluxe program; it names the record namespace both programs share. */
-static uint8_t stock_signature[32];
-static bool stock_signed;
 static uint16_t menu_last_input;
 static char save_namespace[96];
 const char *FzeroTracksSaveNamespace(void) { return save_namespace; }
@@ -217,8 +214,6 @@ static void current_course(void) {
     unsigned order = test ? (unsigned)strtoul(test, NULL, 10) : g_ram[0x53];
     course = imported_course(active_pack, active_cup, order);
   }
-  if (g_snes && g_snes->cart)
-    FzeroCourseApplyHorizonFog(course, g_snes->cart->rom, g_snes->cart->romSize);
 }
 bool FzeroTracksPrepare(uint8_t **rom, size_t *size, bool deluxe, const char *deluxe_path) {
   for (unsigned i = 0; i < imported_count; ++i)
@@ -273,24 +268,14 @@ bool FzeroTracksPrepare(uint8_t **rom, size_t *size, bool deluxe, const char *de
   }
   (void)deluxe;
   if (!FzeroVehiclesLoad(*rom,*size,error,sizeof(error))) { FzeroTracksReport(error); return false; }
-  /* Practice ghosts live in the Deluxe program, independently of its cars
-   * and courses, which stay hidden unless their own mods are enabled. With
-   * only ghosts added, records belong beside the stock cartridge's: sign the
-   * rules exactly as that cartridge would before changing program. */
-  stock_signed = false;
-  if (FzeroGhostOnlyProgram() && FzeroGameplaySettingsCurrent()->enabled) {
-    if (!FzeroDeluxePrepare(rom, size, false, NULL)) return false;
-    stock_signed = FzeroGameplayStockSignature(*rom, *size, stock_signature);
-    if (!stock_signed) { FzeroTracksReport(FzeroGameplayError()); return false; }
-  }
-  if (!FzeroDeluxePrepare(rom, size, FzeroBsCars() || FzeroBsTracks() || FzeroVehiclesActive() ||
-                          FzeroPracticeGhosts(), deluxe_path))
+  if (!FzeroDeluxePrepare(rom, size, FzeroBsCars() || FzeroBsTracks() || FzeroVehiclesActive(),
+                          deluxe_path))
     return false;
   if (!FzeroVehiclesPrepare(rom,size,error,sizeof(error))) { FzeroTracksReport(error); return false; }
   if (FzeroTracksStateActive()) {
     /* The canonical native interrupt module remains selected. Resource
      * callbacks run at the same loader sites for every imported pack. */
-    interp_bridge_set_scheduler_aot_policy(0);
+    if (FzeroTracksActive()) interp_bridge_set_scheduler_aot_policy(0);
     /* Snapshot indices depend on both resource bytes and stable IDs/order.
      * Hash only initialized manifest records, never a pointer or file path. */
     uint8_t hashes[CP_PACKS * 32 + 73] = {0};
@@ -368,27 +353,16 @@ bool FzeroTracksPrepare(uint8_t **rom, size_t *size, bool deluxe, const char *de
 }
 bool FzeroTracksSelectSaveRoot(void) {
   size_t original_root_length=strlen(RtlSaveRoot());
-  /* Stock content with only Practice ghosts added keeps its saves in a
-   * "ghosts" folder inside the stock cartridge's own namespace, not with the
-   * Deluxe cars and courses. The two programs are record twins. */
-  bool ghost_only = FzeroDeluxeActive() && FzeroGhostOnlyProgram();
-  if (!ghost_only && !FzeroDeluxeSelectSaveRoot())
+  FzeroPracticeGhostRoot(RtlSaveRoot());
+  if (!FzeroDeluxeSelectSaveRoot())
     return false;
-  if (FzeroGameplaySettingsCurrent()->enabled || FzeroVehiclesActive()) {
-    if (ghost_only && !stock_signed) return false;
-    char hex[65],root[96]; cp_hash_format(ghost_only ? stock_signature : FzeroGameplaySignature(),hex);
+  if ((FzeroGameplaySettingsCurrent()->enabled & ~FZERO_RULE_SCANOUT_MASK) || FzeroVehiclesActive()) {
+    char hex[65],root[96]; cp_hash_format(FzeroGameplaySignature(),hex);
     if(snprintf(root,sizeof(root),"%s/rules-%.16s",RtlSaveRoot(),hex)>=(int)sizeof(root))return false;
     RtlEnsureSaveDir();RtlSetSaveRoot(root);RtlEnsureSaveDir();
   }
   char twin[96];
-  if (ghost_only) {
-    char root[96];
-    snprintf(twin,sizeof(twin),"%s",RtlSaveRoot());
-    if(snprintf(root,sizeof(root),"%s/ghosts",twin)>=(int)sizeof(root))return false;
-    RtlEnsureSaveDir();RtlSetSaveRoot(root);RtlEnsureSaveDir();
-    fprintf(stderr,"[ghosts] saves: %s/save.srm\n",root);
-    FzeroRecordsSetTwin(twin,0x800);
-  } else if (!FzeroDeluxeActive() && snprintf(twin,sizeof(twin),"%s/ghosts",RtlSaveRoot())<(int)sizeof(twin))
+  if (!FzeroDeluxeActive() && snprintf(twin,sizeof(twin),"%s/ghosts",RtlSaveRoot())<(int)sizeof(twin))
     FzeroRecordsSetTwin(twin,0x8000);
   else FzeroRecordsSetTwin(NULL,0);
   if (FzeroTracksActive() && strlen(RtlSaveRoot()) + 41 >= 96) {

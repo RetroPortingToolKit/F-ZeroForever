@@ -30,6 +30,7 @@
 #include "fzero_msu.h"
 #include "fzero_gameplay.h"
 #include "fzero_vehicles.h"
+#include "fzero_practice_runtime.h"
 #include "fzero_local.h"
 #include "fzero_online.h"
 #include "fzero_vs_menu.h"
@@ -280,7 +281,8 @@ static void run_one_frame(void) {
   snes_set_hdma_beam_enabled(g_snes, false);
   bool online_title=FzeroOnlineEnabled() && FzeroOnlineCompleted()->phase==FZERO_ONLINE_TITLE;
   RtlSetPadState(0,s_online_menu_bootstrap?0:FzeroLocalEnabled() && !online_title?FzeroLocalSetupInput():
-      FzeroVsMenuInput(FzeroTracksMenuInput(FzeroGameplayMenuInput(g_snes->input1_currentState,g_ram),g_ram),g_ram));
+      FzeroVsMenuInput(FzeroTracksMenuInput(FzeroGameplayMenuInput(
+          FzeroPracticeGhostInput(g_snes->input1_currentState, g_ram),g_ram),g_ram),g_ram));
   /* A consumed host menu confirmation must not execute the native handler
    * later in this frame. Its delayed joypad sample could otherwise select GP
    * before the host saves the single-player return point (notably with HD). */
@@ -404,6 +406,7 @@ static void run_one_frame(void) {
   s_next_frame_master += kMasterClocksPerFrame;
   s_host_frames++;
   FzeroTracksMenuTick(g_ram, previous_scene);
+  FzeroPracticeGhostTick(g_ram);
   FzeroLocalSetupTick(s_host_frames);
   FzeroVsMenuTick(g_ram);
 
@@ -542,8 +545,9 @@ static uint8_t hdma_read_bus(void *context, uint32_t address, uint8_t open_bus) 
   return mapped ? *mapped : open_bus;
 }
 
-static void hdma_write_bus(void *context, uint8_t reg, uint8_t value) {
-  (void)context;
+static void hdma_write_bus(void *context, uint8_t reg, uint8_t value, uint32_t source) {
+  if (reg == 0x32)
+    value = FzeroCourseHorizonColor(context, source, value);
   ppu_write(g_ppu, reg, value);
 }
 
@@ -557,7 +561,8 @@ void FzeroDrawPpuFrame(void) {
   }
   SimpleHdma channels[8];
   FzeroHdma bus_channels[8] = {0};
-  FzeroHdmaBus bus = {.read = hdma_read_bus, .write = hdma_write_bus};
+  FzeroHdmaBus bus = {.read = hdma_read_bus, .write = hdma_write_bus,
+                    .context = (void *)FzeroTracksCurrentCourse()};
   const bool deluxe_hdma = FzeroDeluxeActive() || FzeroTracksActive();
   bool active[8] = {false};
   uint8_t cpu_ppu_registers[PPU_SAVESTATE_REGS_SIZE];
@@ -712,6 +717,7 @@ void FzeroDrawPpuFrame(void) {
 
 static void session_reset(void) {
   FzeroLocalShutdown();
+  FzeroPracticeGhostReset();
   FzeroRendererReset();
   FzeroTracksMenuReset();
   s_wide_projection_accepts = 0;

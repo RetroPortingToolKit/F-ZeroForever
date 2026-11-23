@@ -19,9 +19,10 @@ namespace {
 constexpr unsigned kMaximumRuns = 128;
 constexpr unsigned kMaximumTicks = static_cast<unsigned>(20 * 60 * FZERO_SIMULATION_HZ);
 constexpr unsigned kPoseBytes = 8;
-constexpr unsigned kMetadataBytes = 52;
+constexpr unsigned kLegacySourceOffset = 56;
+constexpr unsigned kMetadataBytes = kLegacySourceOffset + 32;
 constexpr unsigned kHeaderBytes = kMetadataBytes + 32;
-constexpr uint8_t kMagic[] = {'F', 'Z', 'G', 1};
+constexpr uint8_t kMagic[] = {'F', 'Z', 'G', 3};
 static_assert(static_cast<unsigned>(FZERO_GHOST_BLUE_THUNDER) == FZERO_MACHINE_COUNT);
 
 using Bytes = std::vector<uint8_t>;
@@ -86,7 +87,9 @@ bool read_run(const fs::path &file, const uint8_t key[32], unsigned id,
       std::memcmp(header.data(), kMagic, sizeof(kMagic)) ||
       std::memcmp(header.data() + 4, key, 32) || int_at(header.data() + 36) != id)
     return false;
-  run = {id, int_at(header.data() + 40), int_at(header.data() + 44), int_at(header.data() + 48)};
+  run = {id, int_at(header.data() + 40), int_at(header.data() + 44),
+         int_at(header.data() + 48), int_at(header.data() + 52), {}};
+  std::memcpy(run.legacy_source, header.data() + kLegacySourceOffset, sizeof(run.legacy_source));
   if (!run.ticks || run.ticks > kMaximumTicks || run.best_lap_ticks > run.ticks ||
       run.machine >= FZERO_GHOST_MACHINE_COUNT || size != kHeaderBytes + run.ticks * kPoseBytes)
     return false;
@@ -104,7 +107,12 @@ bool read_run(const fs::path &file, const uint8_t key[32], unsigned id,
 }
 
 bool run_order(const FzeroGhostRun &left, const FzeroGhostRun &right) {
-  return left.ticks != right.ticks ? left.ticks < right.ticks : left.id < right.id;
+  if (left.finish_centiseconds != right.finish_centiseconds) {
+    if (!right.finish_centiseconds) return true;
+    if (!left.finish_centiseconds) return false;
+    return left.finish_centiseconds < right.finish_centiseconds;
+  }
+  return left.id < right.id;
 }
 } // namespace
 
@@ -215,6 +223,13 @@ bool FzeroGhostPoseAt(const FzeroGhostLibrary *library, unsigned tick, FzeroGhos
   return true;
 }
 
+bool FzeroGhostHasLegacy(const FzeroGhostLibrary *library, const uint8_t digest[32]) {
+  if (!library || !digest) return false;
+  return std::any_of(library->runs.begin(), library->runs.end(), [digest](const FzeroGhostRun &run) {
+    return std::memcmp(run.legacy_source, digest, sizeof(run.legacy_source)) == 0;
+  });
+}
+
 void FzeroGhostBeginRun(FzeroGhostLibrary *library, unsigned machine) {
   if (!library)
     return;
@@ -241,7 +256,8 @@ void FzeroGhostRecord(FzeroGhostLibrary *library, FzeroGhostPose pose) {
   }
 }
 
-FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap_ticks) {
+FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap_ticks,
+                                  unsigned finish_centiseconds, const uint8_t legacy_source[32]) {
   if (!library)
     return FZERO_GHOST_IO_ERROR;
   if (library->recording_status != FZERO_GHOST_OK)
@@ -264,6 +280,10 @@ FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap
       put_int(header, ticks);
       put_int(header, best_lap_ticks);
       put_int(header, library->machine);
+      put_int(header, finish_centiseconds);
+      uint8_t no_source[32] = {};
+      const uint8_t *source = legacy_source ? legacy_source : no_source;
+      header.insert(header.end(), source, source + sizeof(no_source));
       uint8_t digest[32];
       run_digest(digest, header.data(), data);
       header.insert(header.end(), std::begin(digest), std::end(digest));
@@ -275,7 +295,8 @@ FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap
       if (!output)
         break;
       fs::rename(temporary, slot / "run.fzg");
-      FzeroGhostRun committed{id, ticks, best_lap_ticks, library->machine};
+      FzeroGhostRun committed{id, ticks, best_lap_ticks, library->machine, finish_centiseconds, {}};
+      std::memcpy(committed.legacy_source, source, sizeof(committed.legacy_source));
       library->runs.insert(std::lower_bound(library->runs.begin(), library->runs.end(), committed, run_order), committed);
       library->recording.clear();
       return FZERO_GHOST_OK;

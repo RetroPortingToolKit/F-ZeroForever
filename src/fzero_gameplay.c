@@ -9,6 +9,7 @@
 #include "fzero_tracks.h"
 #include "fzero_vehicles.h"
 #include "sha256.h"
+#include "snes/dma.h"
 #include "snes/interp_bridge.h"
 #include "snes/ppu.h"
 #include <stdio.h>
@@ -19,7 +20,6 @@ static FzeroGameplaySettings settings;
 static bool cars, tracks;
 static char error[192];
 static uint8_t signature[32];
-static bool signing_stock;
 static const DispatchEntry patched_program[1] = {{0}};
 static uint8_t turn[4][30], acceleration[4][29];
 static uint8_t native_frequency[45];
@@ -34,12 +34,11 @@ bool FzeroPracticeGhosts(void) { return settings.practice_ghosts; }
 static bool deluxe_content(void) {
   return cars || tracks || settings.vehicle_packs || settings.stock_rebalance;
 }
-bool FzeroGhostOnlyProgram(void) { return settings.practice_ghosts && !deluxe_content(); }
 /* The Deluxe program lists its BS leagues natively. Whenever it runs without
- * them, the catalog menu owns league selection; ghosts alone are such a case. */
+ * them, the catalog menu owns league selection. */
 bool FzeroGameplayActive(void) {
-  return settings.enabled || cars != tracks || settings.vehicle_packs || settings.stock_rebalance ||
-         (settings.practice_ghosts && !tracks);
+  return (settings.enabled & ~FZERO_RULE_SCANOUT_MASK) ||
+      cars != tracks || settings.vehicle_packs || settings.stock_rebalance;
 }
 const FzeroGameplaySettings *FzeroGameplaySettingsCurrent(void) {
   return &settings;
@@ -89,9 +88,7 @@ void FzeroGameplayHeadless(bool deluxe) {
     FzeroTrackLoaderEnable(false);
   if (!getenv("FZERO_TEST_LEGACY_PROFILES")) s.enabled &= ~7u;
   FzeroGameplayConfigure(&s, vehicles, courses);
-  /* Captures keep the ghosts their content already had and never change
-   * program on their own. FZERO_GHOSTS=1 selects the Deluxe program for
-   * otherwise stock content; FZERO_GHOSTS=0 removes ghosts from any content. */
+  /* Keep historical headless defaults unless the workload requests ghosts. */
   env = getenv("FZERO_GHOSTS");
   settings.practice_ghosts = env ? atoi(env) != 0 : deluxe_content();
 }
@@ -140,6 +137,14 @@ static void accum(CpuState *cpu, unsigned value) {
 }
 static uint8_t rom8(unsigned pc) {
   return cpu_read8(&g_cpu, (uint8_t)(pc >> 16), (uint16_t)pc);
+}
+
+static void drift_art_dma(uint8_t bank, uint16_t source, uint16_t target, uint16_t bytes) {
+  /* Retail's second nose-piece upload lands one VRAM word late. Consume the
+   * two lower tiles at their intended OBJ position through the real DMA.
+   * Redirect before the transfer so the following tile keeps its first word. */
+  if ((bank & 0x7f) == 0x0b && source == 0xfe00 && target == 0x49c1 && bytes == 0x40)
+    ppu_write(g_ppu, 0x16, 0xc0);
 }
 static unsigned feature_for_rule(FzeroRule rule) {
   return rule == FZERO_RULE_DMAG ? FZERO_COURSE_GRIP_MAGNETS
@@ -237,7 +242,7 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
       (*rom)[0xf5958 + i] = (uint8_t)i;
     (*rom)[0xf5963] = 0;
   }
-  if (!settings.enabled) {
+  if (!(settings.enabled & ~FZERO_RULE_SCANOUT_MASK)) {
     if (!FzeroMsuApplyConfigured(rom,size)) { snprintf(error,sizeof(error),"%.190s",FzeroMsuError());return false; }
     sign_program(*rom, *size);
     return true;
@@ -264,7 +269,7 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
     /* Complete native adapters below supply these at course boundaries.
      * Installing their donor ASM globally would bypass scoping when a hook
      * declines to run on an unrelated course. */
-    if (FZERO_RULE_COURSE_MASK & (1u << rule))
+    if ((FZERO_RULE_COURSE_MASK | FZERO_RULE_SCANOUT_MASK) & (1u << rule))
       continue;
     unsigned patch = rule + 6 + (rule > FZERO_RULE_RAINBOW);
     apply(grown, patch);
@@ -281,29 +286,10 @@ bool FzeroGameplayPrepare(uint8_t **rom, size_t *size) {
   interp_bridge_set_scheduler_aot_policy(0);
   if (!FzeroMsuApplyConfigured(rom,size)) { snprintf(error,sizeof(error),"%.190s",FzeroMsuError());return false; }
   sign_program(*rom, *size);
-  if (!signing_stock)
-    fprintf(
-        stderr,
-        "[cgp-rules] enabled=%08x profiles=%u,%u,%u bs-cars=%d bs-tracks=%d\n",
-        settings.enabled, settings.tuning + 1, settings.boost + 1,
-        settings.exhaust + 1, cars, tracks);
+  fprintf(stderr, "[cgp-rules] enabled=%08x profiles=%u,%u,%u bs-cars=%d bs-tracks=%d\n",
+          settings.enabled, settings.tuning + 1, settings.boost + 1,
+          settings.exhaust + 1, cars, tracks);
   return true;
-}
-bool FzeroGameplayStockSignature(const uint8_t *rom, size_t size, uint8_t result[32]) {
-  uint8_t *copy = malloc(size), live[32];
-  if (!copy) {
-    snprintf(error, sizeof(error), "Cannot allocate stock rule signature");
-    return false;
-  }
-  memcpy(copy, rom, size);
-  memcpy(live, signature, sizeof(live));
-  signing_stock = true;
-  bool ok = FzeroGameplayPrepare(&copy, &size);
-  signing_stock = false;
-  if (ok) memcpy(result, signature, 32);
-  memcpy(signature, live, sizeof(live));
-  free(copy);
-  return ok;
 }
 static unsigned music_course(void) {
   const CpPack *pack = NULL;
@@ -573,6 +559,7 @@ static void rule_hook(CpuState *cpu, uint32_t pc) {
 void FzeroGameplayInstallHooks(void) {
   class_last_input = 0;
   class_hold = 0;
+  dma_set_vram_notify_hook(FzeroRuleEnabled(FZERO_RULE_ANIMATION) ? drift_art_dma : NULL);
   if (FzeroDeluxeActive() && !tracks)
     interp_bridge_set_pre_opcode_hook(0x1eb805, rule_hook);
   if (FzeroDeluxeActive() && !cars)

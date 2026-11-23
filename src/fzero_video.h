@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "fzero_gameplay.h"
 #include "snes/hd_jobs.h"
 
@@ -64,6 +65,7 @@ FzeroRect FzeroDestination(FzeroViewport viewport, int width, int height);
 int FzeroHudAnchorX(FzeroViewport viewport, int x, int anchor);
 bool FzeroVideoLoad(FzeroVideoSettings *settings, const char *path);
 bool FzeroVideoSave(const FzeroVideoSettings *settings, const char *path);
+bool FzeroVideoWriteSettings(const FzeroVideoSettings *settings, FILE *file);
 
 /* Monotonic time in seconds. Simulation debt is never discarded here.
  * Hosts explicitly reset on pause/minimize/load, and bound catch-up batches
