@@ -112,6 +112,29 @@ def main():
     assert [path.read_bytes() for path in archive] == streams
     assert hashlib.sha256(stock.read_bytes()).hexdigest() == original
 
+    # Snapshot carries the selected rival's identity and its playback position.
+    # Rewind within the run can also reuse the exact recording prefix in memory.
+    snapshot = str(out / "practice-race.state")
+    rewind_log, _, rewound = run(
+        "rewind", base + race, 1312, FZERO_STATE_SAVE=snapshot,
+        FZERO_TEST_SAVE_FRAME="1280", FZERO_REWIND_TEST="1",
+    )
+    assert "actual ring restore and ten-frame resimulation identical" in rewind_log
+    assert rewound == (out / "race-1.ppm").read_bytes()
+    _, cold_ram, cold = run("state-load", "", 32, FZERO_STATE_LOAD=snapshot)
+    _, cold_off_ram, cold_off = run("state-load-off", "", 32,
+                                  FZERO_STATE_LOAD=snapshot, FZERO_GHOSTS="0")
+    assert cold_ram == cold_off_ram and cold_ram[0xcf2] == 255
+    assert cold != cold_off, "Cold-loading the selected ghost lost the rival"
+    log, _, _ = run(
+        "rewind-record", title + confirm_car + no_rival + preview + race + ",1240-1300:1" + finish,
+        3700, FZERO_TEST_RECORDS_CUP="1", FZERO_TEST_SAVE_FRAME="1280",
+        FZERO_REWIND_TEST="1", SNESRECOMP_SAVE_ROOT="s-rewind",
+    )
+    assert "actual ring restore and ten-frame resimulation identical" in log
+    rewound_record = list((out / "s-rewind" / "practice-ghosts").glob("*/*/run.fzg"))
+    assert len(rewound_record) == 1 and rewound_record[0].read_bytes() == streams[0]
+
     # A deterministic alpha.1 SRAM-format fixture. The guest program enables
     # neither recording nor playback here. The host decodes the old stream
     # and adds it to the same archive used by newly recorded runs.
@@ -135,6 +158,7 @@ def main():
         "stock_sha256": original, "passed": True,
         "metadata": metadata, "compared_visible_playback": len(archive),
         "forced_finish_crossing": True, "legacy_format_fixture": True,
+        "same_session_rewind": True, "cold_state_load_ghost": True,
     }, indent=2) + "\n", encoding="utf-8")
 
 

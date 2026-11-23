@@ -325,11 +325,14 @@ static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
     text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, 0xffd0f4f8);
     return;
   }
-  if (view.panel == FZERO_GHOST_PANEL_SAVE || view.panel == FZERO_GHOST_PANEL_SAVED) {
+  if (view.panel == FZERO_GHOST_PANEL_SAVE || view.panel == FZERO_GHOST_PANEL_SAVED ||
+      view.panel == FZERO_GHOST_PANEL_INCOMPLETE) {
     box(c, 38, 125, 180, 59, 0xffd6b842);
     box(c, 40, 127, 176, 55, 0xff000000);
-    if (view.panel == FZERO_GHOST_PANEL_SAVED) {
-      text(c, 76, 137, "GHOST SAVED", 11, 0xffffff55);
+    if (view.panel != FZERO_GHOST_PANEL_SAVE) {
+      const char *status = view.panel == FZERO_GHOST_PANEL_SAVED ?
+          "GHOST SAVED" : "GHOST INCOMPLETE";
+      text(c, 76, 137, status, 17, 0xffffff55);
       text(c, 76, 160, "A TO CONTINUE", 14, 0xffd0f4f8);
       return;
     }

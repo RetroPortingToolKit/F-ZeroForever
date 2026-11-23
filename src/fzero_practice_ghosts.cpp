@@ -121,6 +121,7 @@ struct FzeroGhostLibrary {
   uint8_t key[32];
   std::vector<FzeroGhostRun> runs;
   Bytes recording, playback;
+  std::vector<uint64_t> recording_prefixes;
   unsigned machine = FZERO_GHOST_MACHINE_COUNT;
   FzeroGhostResult recording_status = FZERO_GHOST_INVALID;
 };
@@ -234,6 +235,7 @@ void FzeroGhostBeginRun(FzeroGhostLibrary *library, unsigned machine) {
   if (!library)
     return;
   library->recording.clear();
+  library->recording_prefixes.clear();
   library->machine = machine;
   library->recording_status = machine < FZERO_GHOST_MACHINE_COUNT ? FZERO_GHOST_OK : FZERO_GHOST_INVALID;
 }
@@ -247,6 +249,12 @@ void FzeroGhostRecord(FzeroGhostLibrary *library, FzeroGhostPose pose) {
     return;
   }
   try {
+    uint64_t fingerprint = library->recording_prefixes.empty() ?
+        UINT64_C(14695981039346656037) : library->recording_prefixes.back();
+    for (uint16_t value : {pose.x, pose.y, pose.height, pose.facing}) {
+      fingerprint = (fingerprint ^ value) * UINT64_C(1099511628211);
+    }
+    library->recording_prefixes.push_back(fingerprint);
     put_word(data, pose.x);
     put_word(data, pose.y);
     put_word(data, pose.height);
@@ -254,6 +262,26 @@ void FzeroGhostRecord(FzeroGhostLibrary *library, FzeroGhostPose pose) {
   } catch (const std::bad_alloc &) {
     library->recording_status = FZERO_GHOST_IO_ERROR;
   }
+}
+
+FzeroGhostRecordingPoint FzeroGhostRecordingPosition(const FzeroGhostLibrary *library) {
+  if (!library || library->recording_status != FZERO_GHOST_OK ||
+      library->recording_prefixes.empty())
+    return {};
+  return {library->recording_prefixes.back(),
+          static_cast<uint32_t>(library->recording_prefixes.size()), library->machine};
+}
+
+bool FzeroGhostRestoreRecording(FzeroGhostLibrary *library, FzeroGhostRecordingPoint position) {
+  if (!library || !position.ticks || position.machine != library->machine ||
+      position.ticks > library->recording.size() / kPoseBytes ||
+      position.ticks > library->recording_prefixes.size() ||
+      position.fingerprint != library->recording_prefixes[position.ticks - 1])
+    return false;
+  library->recording.resize(position.ticks * kPoseBytes);
+  library->recording_prefixes.resize(position.ticks);
+  library->recording_status = FZERO_GHOST_OK;
+  return true;
 }
 
 FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap_ticks,
@@ -299,6 +327,7 @@ FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap
       std::memcpy(committed.legacy_source, source, sizeof(committed.legacy_source));
       library->runs.insert(std::lower_bound(library->runs.begin(), library->runs.end(), committed, run_order), committed);
       library->recording.clear();
+      library->recording_prefixes.clear();
       return FZERO_GHOST_OK;
     }
     if (slot.empty())

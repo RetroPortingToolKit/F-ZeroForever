@@ -40,6 +40,13 @@ typedef enum FzeroGhostResult {
   FZERO_GHOST_FULL,
 } FzeroGhostResult;
 
+/* Identifies a prefix of the live recording for same-session rewind. */
+typedef struct FzeroGhostRecordingPoint {
+  uint64_t fingerprint;
+  uint32_t ticks;
+  uint32_t machine;
+} FzeroGhostRecordingPoint;
+
 /* course_id is the stable catalog identity, including the built-in course
  * identity for entries whose course data comes from the verified retail ROM.
  * sim_version identifies the producer's physics and race timing contract. */
@@ -60,6 +67,8 @@ bool FzeroGhostHasLegacy(const FzeroGhostLibrary *library, const uint8_t digest[
 
 void FzeroGhostBeginRun(FzeroGhostLibrary *library, unsigned machine);
 void FzeroGhostRecord(FzeroGhostLibrary *library, FzeroGhostPose pose);
+FzeroGhostRecordingPoint FzeroGhostRecordingPosition(const FzeroGhostLibrary *library);
+bool FzeroGhostRestoreRecording(FzeroGhostLibrary *library, FzeroGhostRecordingPoint position);
 FzeroGhostResult FzeroGhostSaveRun(FzeroGhostLibrary *library, unsigned best_lap_ticks,
                                   unsigned finish_centiseconds, const uint8_t legacy_source[32]);
 

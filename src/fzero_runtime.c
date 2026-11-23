@@ -794,7 +794,7 @@ static bool online_frame_begin(uint32_t *inputs) {
 
 enum {
   kFzeroStateMagic = 0x4f52465au, /* "zFRO" */
-  kFzeroStateVersion = 2u,
+  kFzeroStateVersion = 3u,
 };
 
 /* ── Snapshot mode guard ──────────────────────────────────────────────────
@@ -849,6 +849,7 @@ typedef struct FzeroRuntimeState {
   DmaChannel frame_dma_channels[8];
   FzeroIrqEvent irq_events[kMaximumIrqEventsPerFrame];
   uint8_t music[FZERO_MSU_AUDIO_STATE_SIZE];
+  FzeroPracticeGhostState practice_ghost;
 } FzeroRuntimeState;
 
 static void fzero_state_save_extra(SaveLoadInfo *sli) {
@@ -870,6 +871,7 @@ static void fzero_state_save_extra(SaveLoadInfo *sli) {
   state.version = kFzeroStateVersion;
   state.mode = (uint8_t)FzeroStateModeCurrent();
   FzeroMsuSaveAudio(state.music);
+  FzeroPracticeGhostSaveState(&state.practice_ghost);
   FzeroTracksMenuState(state.reserved, false);
   if(FzeroVsMenuSelected())state.reserved[1]|=128;
   state.cpu = g_cpu;
@@ -960,6 +962,7 @@ static void fzero_state_load_extra(SaveLoadInfo *sli, uint32_t version) {
   if(FzeroOnlineEnabled())FzeroVsMenuRestoreInput(FzeroOnlineCompleted()->previous[0]);
   FzeroTracksMenuState(state.reserved, true);
   FzeroVehiclesLoaded();
+  FzeroPracticeGhostLoadState(&state.practice_ghost, g_ram);
   g_cpu = state.cpu;
   g_cpu.ram = g_ram;
   s_resume_pc = state.resume_pc;
