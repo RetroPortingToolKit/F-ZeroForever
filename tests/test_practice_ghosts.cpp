@@ -68,14 +68,15 @@ int main() {
   record(writer.get(), 0, 10, 0x1010);
   record(writer.get(), 0, 8, 0x3400);
   record(other_writer.get(), 8, 10, 0x2090);
+  record(other_writer.get(), FZERO_GHOST_BLUE_THUNDER, 11, 0x1100);
   writer.reset();
   other_writer.reset();
 
   auto reader = open(key);
-  CHECK(reader && FzeroGhostCount(reader.get()) == 3);
-  const unsigned ids[] = {2, 1, 3}, machines[] = {0, 0, 8};
-  const uint16_t positions[] = {0x3400, 0x1010, 0x2090};
-  for (unsigned i = 0; i < 3; ++i) {
+  CHECK(reader && FzeroGhostCount(reader.get()) == 4);
+  const unsigned ids[] = {2, 1, 3, 4}, machines[] = {0, 0, 8, FZERO_GHOST_BLUE_THUNDER};
+  const uint16_t positions[] = {0x3400, 0x1010, 0x2090, 0x1100};
+  for (unsigned i = 0; i < 4; ++i) {
     FzeroGhostRun run;
     CHECK(FzeroGhostGet(reader.get(), i, &run));
     CHECK(run.id == ids[i] && run.machine == machines[i] && run.best_lap_ticks == run.ticks / 2);
@@ -87,12 +88,12 @@ int main() {
   }
   auto incompatible = open(rebalanced_key);
   CHECK(incompatible && FzeroGhostCount(incompatible.get()) == 0);
-  CHECK(FzeroGhostCount(open(key).get()) == 3);
+  CHECK(FzeroGhostCount(open(key).get()) == 4);
 
   const auto course_folder = fs::directory_iterator(directory / "practice-ghosts")->path();
-  CHECK(fs::create_directory(course_folder / "004"));
-  std::ofstream(course_folder / "004" / "run.tmp") << "interrupted write";
-  CHECK(FzeroGhostCount(open(key).get()) == 3);
+  CHECK(fs::create_directory(course_folder / "005"));
+  std::ofstream(course_folder / "005" / "run.tmp") << "interrupted write";
+  CHECK(FzeroGhostCount(open(key).get()) == 4);
   std::fstream broken(course_folder / "003" / "run.fzg", std::ios::binary | std::ios::in | std::ios::out);
   broken.seekp(-1, std::ios::end);
   broken.put('!');

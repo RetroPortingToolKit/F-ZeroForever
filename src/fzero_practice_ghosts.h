@@ -9,6 +9,16 @@ extern "C" {
 
 typedef struct FzeroGhostLibrary FzeroGhostLibrary;
 
+/* The first twelve IDs are the stock/CGP machine identities. Satellaview
+ * reuses their guest slots, so give its four ships their own persistent IDs. */
+enum {
+  FZERO_GHOST_BLUE_THUNDER = 12,
+  FZERO_GHOST_LUNA_BOMBER,
+  FZERO_GHOST_GREEN_AMAZONE,
+  FZERO_GHOST_FIRE_SCORPION,
+  FZERO_GHOST_MACHINE_COUNT,
+};
+
 /* These are the world-space fields used by the ship projector. A ghost never
  * becomes a collision or traffic actor and does not need a CPU or SRAM slot. */
 typedef struct FzeroGhostPose {

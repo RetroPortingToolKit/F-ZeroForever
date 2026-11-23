@@ -22,6 +22,7 @@ constexpr unsigned kPoseBytes = 8;
 constexpr unsigned kMetadataBytes = 52;
 constexpr unsigned kHeaderBytes = kMetadataBytes + 32;
 constexpr uint8_t kMagic[] = {'F', 'Z', 'G', 1};
+static_assert(static_cast<unsigned>(FZERO_GHOST_BLUE_THUNDER) == FZERO_MACHINE_COUNT);
 
 using Bytes = std::vector<uint8_t>;
 
@@ -87,7 +88,7 @@ bool read_run(const fs::path &file, const uint8_t key[32], unsigned id,
     return false;
   run = {id, int_at(header.data() + 40), int_at(header.data() + 44), int_at(header.data() + 48)};
   if (!run.ticks || run.ticks > kMaximumTicks || run.best_lap_ticks > run.ticks ||
-      run.machine >= FZERO_MACHINE_COUNT || size != kHeaderBytes + run.ticks * kPoseBytes)
+      run.machine >= FZERO_GHOST_MACHINE_COUNT || size != kHeaderBytes + run.ticks * kPoseBytes)
     return false;
   if (!poses)
     return true;
@@ -112,7 +113,7 @@ struct FzeroGhostLibrary {
   uint8_t key[32];
   std::vector<FzeroGhostRun> runs;
   Bytes recording, playback;
-  unsigned machine = FZERO_MACHINE_COUNT;
+  unsigned machine = FZERO_GHOST_MACHINE_COUNT;
   FzeroGhostResult recording_status = FZERO_GHOST_INVALID;
 };
 
@@ -219,7 +220,7 @@ void FzeroGhostBeginRun(FzeroGhostLibrary *library, unsigned machine) {
     return;
   library->recording.clear();
   library->machine = machine;
-  library->recording_status = machine < FZERO_MACHINE_COUNT ? FZERO_GHOST_OK : FZERO_GHOST_INVALID;
+  library->recording_status = machine < FZERO_GHOST_MACHINE_COUNT ? FZERO_GHOST_OK : FZERO_GHOST_INVALID;
 }
 
 void FzeroGhostRecord(FzeroGhostLibrary *library, FzeroGhostPose pose) {
