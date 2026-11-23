@@ -793,6 +793,7 @@ static const RecompLauncherCMusicProvider soundtrack_provider = {
       "Menu music follows this choice unless overridden in Mods.",
   .import_type_id = "music", .folder_type_id = "music-folder"
 };
+#ifndef FZERO_REPLAY_ALPHA
 static int content_changed(void *ctx, const char *id, int action) {
   RecompLauncherCSettings *settings = ctx;
   char selected[96];
@@ -802,6 +803,7 @@ static int content_changed(void *ctx, const char *id, int action) {
   if (action == 2) settings->msu1_enabled = 1;
   return FzeroTracksSave();
 }
+#endif
 static int resolve_rom(const char *executable, const char *explicit_rom,
                        bool force_launcher, char *path, size_t path_size,
                        RecompLauncherCSettings *settings) {
@@ -865,7 +867,12 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
   game.has_rewind_depth = 1;
   game.assist_binding_labels = kQuickLabels;
   game.assist_binding_count = 2;
+#ifdef FZERO_REPLAY_ALPHA
+  game.num_players = 1;
+  game.msu1_note = "Choose an installed soundtrack for the original courses. Missing songs use SNES audio.";
+#else
   FzeroNetplayLauncher(&game);
+#endif
   if (explicit_rom && !force_launcher) {
     if(getenv("FZERO_TEST_LOBBY")) {
       size_t size=0;uint8_t *rom=read_rom(explicit_rom,&size);
@@ -922,8 +929,10 @@ static int resolve_rom(const char *executable, const char *explicit_rom,
   }
   recomp_launcher_set_preserve_sdl(1);
   fprintf(stderr, "[fzero-launcher] opening%s\n", force_launcher ? " (--launcher)" : "");
+#ifndef FZERO_REPLAY_ALPHA
   game.custom_content = FzeroContentProvider("mods", assets_dir);
   FzeroContentSetChangeCallback(content_changed, settings);
+#endif
   int action =
       recomp_launcher_run_window("F-Zero Forever \xE2\x80\x94 Launcher", settings,
                                  &game, assets_dir, initial_rom, path,
@@ -2131,7 +2140,14 @@ static int run_game(int argc, char **argv) {
       resolve_rom(argv[0], explicit_rom, force_launcher, rom_path, sizeof(rom_path), &launcher_settings);
   if (resolve_result <= 0) return resolve_result == 0 ? 0 : 2;
   if(!explicit_players) {local_config.player_count=(uint8_t)g_video.local_players;g_local_players=g_video.local_players;}
+#ifdef FZERO_REPLAY_ALPHA
+  local_two_player = false;
+  g_video.local_two_player = false;
+  g_video.bs_deluxe = g_video.bs_tracks = false;
+  const bool online = false;
+#else
   const bool online=FzeroNetplayWanted(&launcher_settings);
+#endif
   if(online)local_two_player=true;
   const bool local_available=local_two_player || g_video.local_two_player;
   if (!FzeroReplayConfigurePlayers(getenv("SNESRECOMP_INPUT_SCRIPT"),getenv("FZERO_VIEWPORT_SCRIPT"),local_two_player?2:1)) {

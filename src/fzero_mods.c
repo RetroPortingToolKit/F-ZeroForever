@@ -85,7 +85,15 @@ static const char *const vehicle_descriptions[]={
 static bool vehicle_enabled(unsigned i) {
   return i==0 ? video->gameplay.vehicle_packs!=0 : video->gameplay.stock_rebalance!=0;
 }
-static int count(void *ctx) { (void)ctx; return TRACK_START + FzeroTrackModsProvider()->feature_count(ctx); }
+#ifdef FZERO_REPLAY_ALPHA
+static const int replay_mods[] = {
+  0, 1, 3, 4, 6, RECORDS_INDEX, CRASH_INDEX, CALLOUT_INDEX, FPS_INDEX,
+  GHOSTS_INDEX, TRACK_START + 1
+};
+static int count(void *ctx) { (void)ctx; return sizeof(replay_mods) / sizeof(*replay_mods); }
+#else
+static int count(void *ctx) { return TRACK_START + FzeroTrackModsProvider()->feature_count(ctx); }
+#endif
 static int identity(const char *package, const char *feature) {
   if(package && feature && !strcmp(package,"fzero-fps-readout") && !strcmp(feature,"game-fps"))return FPS_KIND;
   if(package && feature && !strcmp(package,"fzero-lap-callouts") && !strcmp(feature,"lap-callouts"))return CALLOUT_KIND;
@@ -104,6 +112,10 @@ static int identity(const char *package, const char *feature) {
   return 0;
 }
 static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
+#ifdef FZERO_REPLAY_ALPHA
+  if (index < 0 || index >= count(ctx)) return 0;
+  index = replay_mods[index];
+#endif
   if (index == GHOSTS_INDEX && out) {
     memset(out,0,sizeof(*out)); COPY(out->id,"fzero-practice-ghosts"); COPY(out->name,"Practice ghosts");
     COPY(out->version,"1"); COPY(out->author,"GuyPerfect, PowerPanda, Porthor, Catador");
@@ -163,6 +175,10 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
   return 1;
 }
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
+#ifdef FZERO_REPLAY_ALPHA
+  if (index < 0 || index >= count(ctx)) return 0;
+  index = replay_mods[index];
+#endif
   if (index == GHOSTS_INDEX && out) {
     memset(out,0,sizeof(*out)); COPY(out->id,"practice-ghosts"); COPY(out->package_id,"fzero-practice-ghosts");
     COPY(out->name,"Practice ghosts"); COPY(out->package_name,out->name); COPY(out->package_version,"1");
@@ -481,7 +497,11 @@ static const RecompLauncherCModPreset presets[] = {
   {"satellaview", "Satellaview", "Original cars plus the four BS cars and ten BS courses, with their stock behavior and SNES music. Turns off Track Pack Loader and CGP vehicles/rules. Personal settings stay as selected.", 0},
   {"cgp", "Community Grand Prix", "All installed course packs, all twelve CGP cars and their authored rebalances, every CGP rule including Legend, Community Grand Prix title and MSU-1 music. Keeps your soundtrack choice and unrelated settings; disables conflicting BS content.", 0}
 };
+#ifdef FZERO_REPLAY_ALPHA
+enum { BUILTIN_PRESETS = 1 };
+#else
 enum { BUILTIN_PRESETS = sizeof(presets) / sizeof(*presets) };
+#endif
 static int preset_count(void *ctx) { (void)ctx; return BUILTIN_PRESETS + FzeroSavedPresetsCount(); }
 static int preset_get(void *ctx, int i, RecompLauncherCModPreset *out) {
   (void)ctx;

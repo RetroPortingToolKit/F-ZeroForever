@@ -55,6 +55,11 @@ void FzeroGameplayConfigure(const FzeroGameplaySettings *s, bool vehicles,
                             bool courses) {
   settings = *s;
   settings.enabled &= FZERO_RULE_ACTIVE_MASK;
+#ifdef FZERO_REPLAY_ALPHA
+  settings.enabled &= FZERO_RULE_PRESENTATION_MASK;
+  settings.vehicle_packs = settings.stock_rebalance = 0;
+  vehicles = courses = false;
+#endif
   if (vehicles) settings.vehicle_packs = settings.stock_rebalance = 0;
   cars = vehicles;
   tracks = courses &&

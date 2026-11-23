@@ -20,7 +20,12 @@ const CpCatalog *FzeroTracksCatalog(void) { return &catalog; }
 const char *FzeroTracksRoot(void) { return root_path; }
 const char *FzeroTracksError(void) { return error_text; }
 bool FzeroTrackLoaderEnabled(void) { return loader_enabled; }
-void FzeroTrackLoaderEnable(bool enabled) { loader_enabled = enabled; }
+void FzeroTrackLoaderEnable(bool enabled) {
+#ifdef FZERO_REPLAY_ALPHA
+  enabled = false;
+#endif
+  loader_enabled = enabled;
+}
 static bool fail(const char *s) {
   snprintf(error_text, sizeof(error_text), "%s", s);
   return false;
@@ -77,7 +82,12 @@ void FzeroTracksDiscover(const uint8_t *stock, size_t size) {
   (void)size;
 }
 bool FzeroTracksTitleEnabled(void) { return title_enabled; }
-void FzeroTracksEnableTitle(bool enabled) { title_enabled = enabled; }
+void FzeroTracksEnableTitle(bool enabled) {
+#ifdef FZERO_REPLAY_ALPHA
+  enabled = false;
+#endif
+  title_enabled = enabled;
+}
 const char *FzeroTracksTitleStyle(void) { return title_style; }
 bool FzeroTracksSetTitleStyle(const char *s) {
   if (!s || strlen(s) >= sizeof(title_style) || !FzeroTitleFind(s))
@@ -211,6 +221,8 @@ bool FzeroTracksInit(const char *root, bool deluxe_available) {
   const char *enabled = getenv("FZERO_PACK_LOADER");
   if (enabled)
     loader_enabled = !strcmp(enabled, "1");
+  FzeroTrackLoaderEnable(loader_enabled);
+  FzeroTracksEnableTitle(title_enabled);
   return true;
 }
 bool FzeroTracksWriteSettings(FILE *f) {

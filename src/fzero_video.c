@@ -19,6 +19,11 @@ void FzeroVideoDefaults(FzeroVideoSettings *s) {
                             .fps = 0, .fps_enabled = true, .local_two_player = true, .local_players = 2,
                             .hd_mode7 = true, .hd_scale = 4, .hd_supersample = 1, .diagnostics = false, .crash_replay = true,
                             .gameplay = {.enabled=FZERO_RULE_DEFAULT_MASK, .tuning=2, .boost=2, .exhaust=2, .vehicle_packs=7, .stock_rebalance=15, .always_records=true, .practice_ghosts=true}};
+#ifdef FZERO_REPLAY_ALPHA
+  s->gameplay.enabled = 0;
+  s->gameplay.vehicle_packs = s->gameplay.stock_rebalance = 0;
+  s->local_two_player = false;
+#endif
 }
 
 void FzeroVideoStock(FzeroVideoSettings *s) {
