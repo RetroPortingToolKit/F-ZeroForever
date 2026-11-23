@@ -34,9 +34,18 @@ bool FzeroLocalStockTables(const uint8_t *rom,size_t size) {
   if(!rom || size!=sizeof(stock_tables))return false;
   memcpy(stock_tables,rom,size);have_stock_tables=true;
   memset(&ui,0,sizeof(ui));
+  for (unsigned group = 0; group < 3; ++group) {
+    free(machine_tables[group]);
+    machine_tables[group] = NULL;
+  }
+  return true;
+}
+
+static bool prepare_versus_machines(void) {
   for(unsigned group=1;group<=3;++group) {
-    free(machine_tables[group-1]);char error[192]={0};
-    machine_tables[group-1]=FzeroVehicleVersusImage(rom,size,group,error,sizeof(error));
+    if (machine_tables[group-1]) continue;
+    char error[192]={0};
+    machine_tables[group-1]=FzeroVehicleVersusImage(stock_tables,sizeof(stock_tables),group,error,sizeof(error));
     if(!machine_tables[group-1]) {fprintf(stderr,"[versus vehicles] %s\n",error);return false;}
   }
   return true;
@@ -84,7 +93,7 @@ const FzeroNativeUi *FzeroLocalUi(void) {
    * soundtrack can keep playing. Its immutable ROM artwork is independent
    * of an enabled race session. */
   if(!ui.valid && have_stock_tables) {
-    if(!FzeroNativeUiInit(&ui,tables()) || !FzeroNativeUiLoadMachines(&ui,tables())) {
+    if(!prepare_versus_machines() || !FzeroNativeUiInit(&ui,tables()) || !FzeroNativeUiLoadMachines(&ui,tables())) {
       memset(&ui,0,sizeof(ui));return NULL;
     }
   }
@@ -111,10 +120,10 @@ void FzeroLocalShutdown(void) {
 }
 bool FzeroLocalConfigure(FzeroVersusConfig c) {
   if(!FzeroLocalCourseLocation(c.course,NULL,NULL) || FzeroVersusPlayers(c)<2 || FzeroVersusPlayers(c)>4)return false;
+  if(!FzeroLocalUi())return false;
   c.player_count=(uint8_t)FzeroVersusPlayers(c);
   for(unsigned i=0;i<c.player_count;++i)if(c.machine[i]>=FZERO_MACHINE_COUNT || !FzeroMachineAvailable(tables(),c.machine[i]))return false;
   FzeroLocalShutdown();config=c;enabled=fast_setup=true;++epoch;
-  if(!FzeroLocalUi()) {FzeroLocalShutdown();return false;}
   /* Resource loader hooks are interpreted-opcode hooks. Keep native setup
    * on the byte interpreter so a compiled call cannot bypass configuration.
    * Gameplay never executes this CPU after the authoritative handoff. */

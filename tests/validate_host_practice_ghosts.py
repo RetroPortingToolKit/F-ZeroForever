@@ -82,15 +82,27 @@ def main():
 
     base = title + confirm_car + ghost + preview
     _, control_ram, control = run("race-control", title + confirm_car + no_rival + preview + race, 1312)
-    for run_id, choice in ((1, ""), (2, ",950:2048"), (3, ",950:1024")):
+    capture = dict(FZERO_CAPTURE_FRAME="1300", FZERO_CAPTURE_PREFIX=str(out / "drift-stock"))
+    log, stock_race, frame = run("race-1", base + race, 1312, **capture)
+    assert "racing course=0 run=1 car=0" in log and stock_race[0xcf2] == 255
+    assert frame != control
+    for run_id, choice in ((2, ",950:2048"), (3, ",950:1024")):
         log, ram, frame = run(f"race-{run_id}", base + choice + race, 1312)
         car = metadata[run_id - 1][3]
         assert f"racing course=0 run={run_id} car={car} " in log
         assert ram[0xcf2] == control_ram[0xcf2] == 255, "A ghost occupied the native rival slot"
         assert frame != control, f"Run {run_id} was selected without a visible rival"
 
-    cosmetic, _, _ = run("animation-fix", base + race, 1312, FZERO_RULES="cgp-animation")
+    cosmetic, fixed_race, _ = run("animation-fix", base + race, 1312, FZERO_RULES="cgp-animation",
+                                  **dict(capture, FZERO_CAPTURE_PREFIX=str(out / "drift-fixed")))
     assert "racing course=0 run=1 car=0" in cosmetic
+    assert stock_race[0xb00:0x1100] == fixed_race[0xb00:0x1100]
+    lower_tiles = stock.read_bytes()[0x5fe00:0x5fe40]
+    vram = 224 * 1120  # Raster capture's scanlines precede its captured video RAM.
+    for label, address in (("drift-stock", 0x49c1), ("drift-fixed", 0x49c0)):
+        capture_data = (out / f"{label}.bin").read_bytes()
+        start = vram + address * 2
+        assert capture_data[start:start + len(lower_tiles)] == lower_tiles
     disabled, disabled_ram, disabled_frame = run("ghosts-disabled", base + race, 1312, FZERO_GHOSTS="0")
     assert "[practice-ghost]" not in disabled
     assert disabled_ram[0xcf2] == 255 and disabled_frame == control

@@ -138,30 +138,19 @@ the IPS/BPS file; the importer accepts ZIP archives directly.
 
 ## Practice ghosts
 
-**Mods > Practice ghosts** is on by default and works with every car and
-course choice, including the **Vanilla** preset. It has its own switch: it is
-not part of the Satellaview or CGP mods, and changing a preset leaves it alone.
+**Mods > Practice ghosts** is on by default. The built-in presets retain
+your choice. Named presets saved from Mods include the choice you saved.
 
-To record a ghost, start **Practice**, choose **No Rival** or **Ghost** as your
-rival, and finish the race. Choose **YES** at **Save Ghost?**. To race it,
-pick **Ghost** as your rival on that course. Saving a new ghost replaces the
-previous one for that setup.
+In **Vanilla**, start **Practice**, choose **No Rival** or **Ghost**, and finish
+the race. Choose **YES** at **Save Ghost?** to add the run to that course's
+library. To race a recording, choose **Ghost** and look for the selected car
+and time on the course preview. The fastest timed run appears first. Use
+**L/R** to choose among available runs and **Select** to change courses.
+Older imported runs can appear without a time.
 
-Turn the mod off to remove the **Ghost** rival and the **Save Ghost?** prompt.
-Ghosts you already saved are kept and come back when you turn it on again.
-
-Ghosts come from BS F-Zero Deluxe, so the game runs on that program whenever
-this mod is on. With only the original cars and courses selected:
-
-- Your records carry over in both directions. Times and unlocked classes set
-  with ghosts on appear with ghosts off, and the reverse.
-- Save states do not carry over. A state saved with ghosts on cannot be
-  loaded with ghosts off, or the reverse.
-- The saved ghost lives in a `ghosts` folder inside your existing save folder.
-
-If you already use Satellaview vehicles or tracks, CGP vehicles or CGP
-original-car rebalances, nothing changes: those setups had ghosts before, and
-their records, ghosts and save states stay where they are.
+The library lives in the `practice-ghosts` folder inside your save folder.
+Practice times and unlocks use the regular game save. Turning Practice ghosts
+off keeps your recordings available for the next time you enable it.
 
 ## Opening Records for testing
 

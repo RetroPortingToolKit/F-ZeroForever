@@ -66,6 +66,11 @@ including Legend, Community Grand Prix title and bundled music. Individual
 options remain editable. The console ending-credits patch is retired. F-Zero 55
 title artwork is retained but hidden for a future course pack. No preset is applied automatically on startup.
 
+Use **Save current mods** to name your current choices and add them to the
+preset list. Selecting your preset reapplies those choices, including
+Practice ghosts. **Manage presets** lets you rename, update or delete your
+saved presets. [Practice ghosts](../MODS.md#practice-ghosts)
+
 Windows previews come in **with-msu** and **without-msu** ZIPs. Both support
 MSU playback; only with-msu includes the replacement **Community Grand Prix PC-port**
 soundtrack (29 attribution-cleared recordings). In **Settings > Audio**, **MSU-1 music** defaults on for fresh settings. Leave its source

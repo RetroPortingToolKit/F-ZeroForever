@@ -62,11 +62,10 @@ static const char crash_description[] =
   "Stays local; includes game memory and save data, never a ROM file. "
   "Restart after changing this setting.";
 static const char ghosts_description[] =
-  "Enabled by default. Finish a Practice race with No Rival or Ghost selected, choose Save Ghost, "
-  "then pick Ghost as your rival to race that recording. "
-  "Works with every car and course choice, including the Vanilla preset; presets leave this switch alone. "
-  "Ghosts run on the BS F-Zero Deluxe program. An original-only setup keeps its records, but uses separate save states while this is on. "
-  "Turn off to remove the Ghost rival and the Save Ghost prompt. Saved ghosts are kept.";
+  "Enabled by default. Finish a Practice race with No Rival or Ghost selected, then choose Save Ghost. "
+  "In Vanilla, the course preview shows the fastest saved run for that course. Use L/R to pick another run. "
+  "Built-in presets keep your ghost setting. Saved mod presets include it. "
+  "Turning ghosts off keeps your saved runs.";
 static const char records_description[] =
   "Keep RECORDS available on the title menu, even before setting a record. "
   "Enabled by default for testing. Does not create records or change race results. "
