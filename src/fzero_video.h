@@ -47,7 +47,7 @@ typedef struct FzeroViewport {
 
 typedef struct FzeroRect { int x, y, w, h; } FzeroRect;
 
-void FzeroVideoDefaults(FzeroVideoSettings *settings); /* shipped: Fit; GPU Mode 7 on at 8x */
+void FzeroVideoDefaults(FzeroVideoSettings *settings); /* shipped: Fit; GPU Mode 7 on; Practice ghosts on */
 void FzeroVideoStock(FzeroVideoSettings *settings);    /* stock 4:3, no mods */
 const char *FzeroAspectName(FzeroAspect aspect);
 bool FzeroParseAspect(const char *text, FzeroAspect *aspect);

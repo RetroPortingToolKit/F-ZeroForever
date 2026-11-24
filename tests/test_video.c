@@ -252,6 +252,18 @@ static void config_tests(void) {
   CHECK(FzeroVideoSave(&b,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini") && !a.crash_replay);
   b.gameplay.always_records=false;
   CHECK(FzeroVideoSave(&b,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini") && !a.gameplay.always_records);
+  /* Practice ghosts default on, including configs saved before the key
+   * existed and the Vanilla selection; an explicit opt-out is kept. */
+  CHECK(b.gameplay.practice_ghosts && a.gameplay.practice_ghosts);
+  f=fopen("test-video.ini","w");CHECK(f);
+  fputs("BSVehicles=0\nBSTracks=0\nCGPCars=0\nCGPStockRebalance=0\nCGPRules=0\n",f);fclose(f);
+  CHECK(FzeroVideoLoad(&a,"test-video.ini") && a.gameplay.practice_ghosts && !a.bs_deluxe && !a.gameplay.vehicle_packs);
+  a.gameplay.practice_ghosts=false;
+  CHECK(FzeroVideoSave(&a,"test-video.ini") && FzeroVideoLoad(&a,"test-video.ini") && !a.gameplay.practice_ghosts);
+  f=fopen("test-video.ini","w");CHECK(f);fputs("PracticeGhosts=2\n",f);fclose(f);
+  CHECK(!FzeroVideoLoad(&a,"test-video.ini") && a.gameplay.practice_ghosts);
+  FzeroVideoStock(&a);
+  CHECK(!a.gameplay.practice_ghosts); /* Stock captures and tools stay on the stock program. */
   remove("test-video.ini");
   CHECK(!b.bs_tracks && b.gameplay.enabled==FZERO_RULE_DEFAULT_MASK); /* Legend is offered by default; native BS tracks stay off. */
   CHECK(!FzeroValidFps(61));

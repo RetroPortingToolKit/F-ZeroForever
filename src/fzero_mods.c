@@ -39,7 +39,7 @@ static const FzeroRule menu_rules[] = {
 };
 enum { VEHICLE_COUNT=2, VEHICLE_START=6+sizeof(menu_rules)/sizeof(*menu_rules), TITLE_INDEX=VEHICLE_START+VEHICLE_COUNT,
        RECORDS_INDEX=TITLE_INDEX+1, CRASH_INDEX=RECORDS_INDEX+1, LOCAL_INDEX=CRASH_INDEX+1, CALLOUT_INDEX=LOCAL_INDEX+1,
-       FPS_INDEX=CALLOUT_INDEX+1, TRACK_START=FPS_INDEX+1, TITLE_KIND=200, RECORDS_KIND=201, CRASH_KIND=202, LOCAL_KIND=203, CALLOUT_KIND=204, FPS_KIND=205 };
+       FPS_INDEX=CALLOUT_INDEX+1, GHOSTS_INDEX=FPS_INDEX+1, TRACK_START=GHOSTS_INDEX+1, TITLE_KIND=200, RECORDS_KIND=201, CRASH_KIND=202, LOCAL_KIND=203, CALLOUT_KIND=204, FPS_KIND=205, GHOSTS_KIND=206 };
 static const char callout_description[]=
   "Play your boost-power WAV on new laps, or choose to announce it only once when lap 2 begins. "
   "The final-lap WAV plays when the last lap begins. Add an optional finish WAV for the final finish-line crossing. "
@@ -60,6 +60,12 @@ static const char crash_description[] =
   "After reproducing a problem, quit and run Collect diagnostics.cmd to make a report ZIP. "
   "Stays local; includes game memory and save data, never a ROM file. "
   "Restart after changing this setting.";
+static const char ghosts_description[] =
+  "Enabled by default. Finish a Practice race with No Rival or Ghost selected, choose Save Ghost, "
+  "then pick Ghost as your rival to race that recording. "
+  "Works with every car and course choice, including the Vanilla preset; presets leave this switch alone. "
+  "Ghosts run on the BS F-Zero Deluxe program. An original-only setup keeps its records, but uses separate save states while this is on. "
+  "Turn off to remove the Ghost rival and the Save Ghost prompt. Saved ghosts are kept.";
 static const char records_description[] =
   "Keep RECORDS available on the title menu, even before setting a record. "
   "Enabled by default for testing. Does not create records or change race results. "
@@ -86,6 +92,7 @@ static int identity(const char *package, const char *feature) {
   if(package && feature && !strcmp(package,"fzero-local-2p") && !strcmp(feature,"local-2p"))return LOCAL_KIND;
   if (package && feature && !strcmp(package,"fzero-crash-replay") && !strcmp(feature,"crash-replay")) return CRASH_KIND;
   if (package && feature && !strcmp(package,"fzero-always-records") && !strcmp(feature,"always-records")) return RECORDS_KIND;
+  if (package && feature && !strcmp(package,"fzero-practice-ghosts") && !strcmp(feature,"practice-ghosts")) return GHOSTS_KIND;
   if (package && feature && !strcmp(package,"fzero-title") && !strcmp(feature,"title-screen")) return TITLE_KIND;
   if (package && feature) for (int i = 0; i < 6; ++i)
     if (!strcmp(package, packages[i]) && !strcmp(feature, features[i])) return i + 1;
@@ -97,6 +104,11 @@ static int identity(const char *package, const char *feature) {
   return 0;
 }
 static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
+  if (index == GHOSTS_INDEX && out) {
+    memset(out,0,sizeof(*out)); COPY(out->id,"fzero-practice-ghosts"); COPY(out->name,"Practice ghosts");
+    COPY(out->version,"1"); COPY(out->author,"GuyPerfect, PowerPanda, Porthor, Catador");
+    COPY(out->description,ghosts_description); out->enabled=video->gameplay.practice_ghosts; return 1;
+  }
   if(index==FPS_INDEX && out) {
     memset(out,0,sizeof(*out));COPY(out->id,"fzero-fps-readout");COPY(out->name,"Game FPS readout");
     COPY(out->version,"1");COPY(out->author,"SNESRecomp contributors");
@@ -151,6 +163,13 @@ static int package_get(void *ctx, int index, RecompLauncherCModPackage *out) {
   return 1;
 }
 static int feature_get(void *ctx, int index, RecompLauncherCModFeature *out) {
+  if (index == GHOSTS_INDEX && out) {
+    memset(out,0,sizeof(*out)); COPY(out->id,"practice-ghosts"); COPY(out->package_id,"fzero-practice-ghosts");
+    COPY(out->name,"Practice ghosts"); COPY(out->package_name,out->name); COPY(out->package_version,"1");
+    COPY(out->group,"Game Modes"); COPY(out->author,"GuyPerfect, PowerPanda, Porthor, Catador");
+    COPY(out->description,ghosts_description); out->enabled=video->gameplay.practice_ghosts;
+    COPY(out->status,out->enabled ? "Save Ghost in Practice" : "No ghosts"); return 1;
+  }
   if(index==FPS_INDEX && out) {
     memset(out,0,sizeof(*out));COPY(out->id,"game-fps");COPY(out->package_id,"fzero-fps-readout");
     COPY(out->name,"Game FPS readout");COPY(out->package_name,out->name);COPY(out->package_version,"1");
@@ -360,7 +379,9 @@ static int enable(void *ctx, const char *package, const char *feature, int enabl
   }
   (void)ctx;
   if (!identity(package, feature)) return 0;
-  if (identity(package,feature)==RECORDS_KIND) {
+  if (identity(package,feature)==GHOSTS_KIND) {
+    video->gameplay.practice_ghosts=enabled!=0;
+  } else if (identity(package,feature)==RECORDS_KIND) {
     video->gameplay.always_records=enabled!=0;
   } else if (identity(package,feature)==TITLE_KIND) {
     FzeroTracksEnableTitle(enabled!=0);

@@ -36,6 +36,7 @@ typedef struct FzeroGameplaySettings {
   unsigned vehicle_packs; /* CGP P1/P2/P3 bits; launcher/config enables all (7) or none. */
   unsigned stock_rebalance; /* Explicit BF/WG/GF/FS identity bits. */
   bool always_records; /* Testing: expose the title's records browser on empty saves. */
+  bool practice_ghosts; /* Native Practice ghosts; on its own this selects the Deluxe program. */
 } FzeroGameplaySettings;
 typedef struct FzeroRuleInfo {
   const char *id, *name, *description;
@@ -47,10 +48,28 @@ void FzeroGameplayConfigure(const FzeroGameplaySettings *settings, bool cars,
 void FzeroGameplayHeadless(bool deluxe);
 bool FzeroBsCars(void);
 bool FzeroBsTracks(void);
+/* Practice ghosts are native Deluxe code. Enabled, they select that program
+ * by themselves; disabled, the same program runs without its ghost choices. */
+bool FzeroPracticeGhosts(void);
+/* Ghosts are the only reason the Deluxe program is selected: the cars and
+ * courses are exactly what the stock cartridge offers with these settings. */
+bool FzeroGhostOnlyProgram(void);
+/* Practice rival cursor to use in place of the native Ghost entry ($FE) while
+ * ghosts are off. `first` is the entry Select wraps to from No Rival ($FF). */
+unsigned FzeroGhostlessRival(unsigned current, unsigned buttons, unsigned first);
+/* Presentation only: hide the native rival panel's Ghost row while ghosts are
+ * off. Guest VRAM is restored at the end of the same rendered frame. */
+struct Ppu;
+void FzeroGhostsBeginFrame(struct Ppu *ppu, const uint8_t *ram);
+void FzeroGhostsEndFrame(struct Ppu *ppu);
 bool FzeroGameplayActive(void);
 const FzeroGameplaySettings *FzeroGameplaySettingsCurrent(void);
 const uint8_t *FzeroGameplaySignature(void);
 bool FzeroGameplayPrepare(uint8_t **rom, size_t *size);
+/* The signature FzeroGameplayPrepare gives these settings on `rom`, computed
+ * on a copy. Call while the program that `rom` belongs to is the selected one;
+ * the caller's later FzeroGameplayPrepare installs the live rules. */
+bool FzeroGameplayStockSignature(const uint8_t *rom, size_t size, uint8_t result[32]);
 const char *FzeroGameplayError(void);
 void FzeroGameplayInstallHooks(void);
 unsigned FzeroGameplayMusicTrack(unsigned command);

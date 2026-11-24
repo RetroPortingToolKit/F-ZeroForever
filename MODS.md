@@ -136,6 +136,33 @@ along with Hybrid and ReFractured. They use the same course review form.
 For a download supplied as RAR, extract it first and pick
 the IPS/BPS file; the importer accepts ZIP archives directly.
 
+## Practice ghosts
+
+**Mods > Practice ghosts** is on by default and works with every car and
+course choice, including the **Vanilla** preset. It has its own switch: it is
+not part of the Satellaview or CGP mods, and changing a preset leaves it alone.
+
+To record a ghost, start **Practice**, choose **No Rival** or **Ghost** as your
+rival, and finish the race. Choose **YES** at **Save Ghost?**. To race it,
+pick **Ghost** as your rival on that course. Saving a new ghost replaces the
+previous one for that setup.
+
+Turn the mod off to remove the **Ghost** rival and the **Save Ghost?** prompt.
+Ghosts you already saved are kept and come back when you turn it on again.
+
+Ghosts come from BS F-Zero Deluxe, so the game runs on that program whenever
+this mod is on. With only the original cars and courses selected:
+
+- Your records carry over in both directions. Times and unlocked classes set
+  with ghosts on appear with ghosts off, and the reverse.
+- Save states do not carry over. A state saved with ghosts on cannot be
+  loaded with ghosts off, or the reverse.
+- The saved ghost lives in a `ghosts` folder inside your existing save folder.
+
+If you already use Satellaview vehicles or tracks, CGP vehicles or CGP
+original-car rebalances, nothing changes: those setups had ghosts before, and
+their records, ghosts and save states stay where they are.
+
 ## Opening Records for testing
 
 **Mods > Always show Records** is on by default. It keeps **RECORDS** on the

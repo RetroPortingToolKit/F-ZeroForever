@@ -2205,7 +2205,10 @@ static int run_game(int argc, char **argv) {
     fprintf(stderr, "[bs-deluxe] %s starting stock\n", FzeroDeluxeError());
     if (*FzeroGameplayError()) { fprintf(stderr,"%s\n",FzeroGameplayError()); free(rom); return 2; }
     g_video.bs_deluxe = g_video.bs_tracks = false;
-    FzeroGameplayConfigure(&g_video.gameplay,false,false);
+    /* The stock cartridge has no ghosts; the saved preference is untouched. */
+    FzeroGameplaySettings stock_gameplay = g_video.gameplay;
+    stock_gameplay.practice_ghosts = false;
+    FzeroGameplayConfigure(&stock_gameplay,false,false);
     if (!FzeroTracksPrepare(&rom, &rom_size, false, NULL)) { free(rom); return 2; }
   }
   host_report_breadcrumb("Cartridge profile ready");
