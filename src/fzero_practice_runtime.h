@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fzero_practice_ghosts.h"
+#include "fzero_ship.h"
 
 typedef enum FzeroPracticeGhostPanel {
   FZERO_GHOST_PANEL_NONE,
@@ -33,5 +34,5 @@ void FzeroPracticeGhostLoadState(const FzeroPracticeGhostState *state, const uin
 uint16_t FzeroPracticeGhostInput(uint16_t input, const uint8_t *ram);
 void FzeroPracticeGhostTick(const uint8_t *ram);
 FzeroPracticeGhostView FzeroPracticeGhostViewAt(const uint8_t *ram);
-void FzeroPracticeGhostDrawShip(uint32_t *pixels, unsigned width, unsigned height,
-                               size_t pitch, const uint8_t *ram);
+bool FzeroPracticeGhostScene(const uint8_t *ram);
+bool FzeroPracticeGhostBuildShip(FzeroShip *ship, const uint8_t *ram);

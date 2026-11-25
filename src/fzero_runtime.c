@@ -447,6 +447,11 @@ void FzeroSetViewport(FzeroViewport viewport) {
 
 void FzeroPresent(double alpha) {
   discard_hd_jobs();
+  FzeroShip ghost;
+  bool ghost_visible = FzeroPracticeGhostBuildShip(&ghost, s_published_ram);
+  FzeroPracticeGhostView ghost_view = FzeroPracticeGhostViewAt(s_published_ram);
+  FzeroRendererPractice(ghost_visible ? &ghost : NULL,
+                       ghost_view.panel >= FZERO_GHOST_PANEL_SAVE);
   if(FzeroOnlineEnabled() && FzeroOnlineCompleted()->phase!=FZERO_ONLINE_RACE &&
       FzeroOnlineCompleted()->phase!=FZERO_ONLINE_TITLE) {
     s_hd_ready=false;
@@ -683,10 +688,11 @@ void FzeroDrawPpuFrame(void) {
   ppu_handleVblank(g_ppu);
   if (capture) {
     FzeroRendererEndFrame(g_ppu, s_stock_pixels);
-    if (s_viewport.enhanced || s_hd_scale) {
+    bool ghost_scene = FzeroPracticeGhostScene(s_published_ram);
+    if (s_viewport.enhanced || s_hd_scale || ghost_scene) {
       if (!s_deferred_presentation && !s_restoring_local_assets) FzeroPresent(1);
     }
-    if (!s_restoring_local_assets && s_output_pixels && !s_viewport.enhanced) for (unsigned y = 0; y < 224; ++y)
+    if (!s_restoring_local_assets && s_output_pixels && !s_viewport.enhanced && !ghost_scene) for (unsigned y = 0; y < 224; ++y)
         memcpy(s_output_pixels + y * s_output_pitch, s_stock_pixels + y * 256, 256 * 4);
     if(s_output_pixels)PpuBeginDrawing(g_ppu, s_output_pixels, s_output_pitch, kPpuRenderFlags_NewRenderer);
   }

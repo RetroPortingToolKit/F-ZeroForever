@@ -350,39 +350,25 @@ static uint8_t stock_table(void *context, uint32_t address) {
   return data ? *data : 0;
 }
 
-void FzeroPracticeGhostDrawShip(uint32_t *pixels, unsigned width, unsigned height,
-                               size_t pitch, const uint8_t *ram) {
-  if (!pixels || !active(ram) || !race(ram) || !session.playback || !session.sample_count ||
-      session.course != ram[0x53] || height < 224 || height % 224)
-    return;
+bool FzeroPracticeGhostScene(const uint8_t *ram) {
+  return active(ram) && ((race(ram) && session.playback) ||
+                        (results(ram) && session.offer_save));
+}
+
+bool FzeroPracticeGhostBuildShip(FzeroShip *ship, const uint8_t *ram) {
+  /* The original ghost occupies the opponent OBJ reservation on alternate
+   * simulation frames. Presentation interpolation must keep that cadence. */
+  if (!active(ram) || !race(ram) || !session.playback || !session.sample_count ||
+      session.course != ram[0x53] || !(ram[0x51] & 1))
+    return false;
   FzeroGhostPose pose;
   /* The published PPU frame starts before the final logic tick of this host frame. */
   unsigned sample = session.sample_count > 1 ? session.sample_count - 2 : 0;
-  if (!FzeroGhostPoseAt(session.library, sample, &pose)) return;
+  if (!FzeroGhostPoseAt(session.library, sample, &pose)) return false;
   FzeroActor camera = {.x = word(ram, 0xb70), .y = word(ram, 0xb90),
                        .height = word(ram, 0xbc0), .facing = word(ram, 0xbd0), .machine = ram[0x52]};
   FzeroActor target = {.x = pose.x, .y = pose.y, .height = pose.height,
                        .facing = pose.facing, .machine = (uint8_t)session.target.machine};
   FzeroActorTables tables = {stock_table, g_snes->cart, 0};
-  FzeroShip ship;
-  if (!FzeroShipBuild(&ship, &camera, &target, tables) || !ship.visible) return;
-  unsigned scale = height / 224;
-  int logical_width = (int)(width / scale);
-  int left = ship.x + (logical_width - 256) / 2;
-  /* Stipple the sprite in native pixels so the same output works on an opaque
-   * frame and the renderer's transparent GPU foreground. */
-  for (int y = 0; y < 64; ++y) {
-    int dy = ship.y + y;
-    if (dy < 0 || dy >= 224) continue;
-    for (int x = y & 1; x < 64; x += 2) {
-      int dx = left + x;
-      uint32_t color = ship.pixels[y * 64 + x];
-      if (!color || dx < 0 || dx >= logical_width) continue;
-      for (unsigned row = 0; row < scale; ++row) {
-        uint32_t *destination = (uint32_t *)((uint8_t *)pixels + (dy * scale + row) * pitch);
-        for (unsigned column = 0; column < scale; ++column)
-          destination[dx * scale + column] = color;
-      }
-    }
-  }
+  return FzeroShipBuild(ship, &camera, &target, tables) && ship->visible;
 }

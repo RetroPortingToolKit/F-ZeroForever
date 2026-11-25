@@ -2,6 +2,7 @@
 
 #include "fzero_video.h"
 #include "fzero_camera.h"
+#include "fzero_ship.h"
 #include "snes/ppu.h"
 
 /* Each camera owns its capture history, interpolation and worker scratch.
@@ -42,6 +43,9 @@ const uint32_t *FzeroRenderViewStockFrame(const FzeroRenderView *view);
 
 /* The original interface is a wrapper around the single-player view. */
 void FzeroRendererReset(void);
+/* Optional Practice rival and results prompt for the single-player view.
+ * Copies the sprite before rendering workers start. NULL clears the rival. */
+void FzeroRendererPractice(const FzeroShip *ghost, bool save_prompt);
 bool FzeroRendererSetSupersample(unsigned samples);
 unsigned FzeroRendererSupersample(void);
 /* Join rendering workers on host shutdown. Reset/state loads reuse the pool. */

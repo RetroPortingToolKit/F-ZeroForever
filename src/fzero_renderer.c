@@ -36,6 +36,13 @@ struct FzeroRenderView {
   unsigned course_grid;
 };
 static FzeroRenderView single_player;
+static FzeroShip practice_ghost;
+static bool practice_prompt;
+void FzeroRendererPractice(const FzeroShip *ghost, bool save_prompt) {
+  if (ghost) practice_ghost = *ghost;
+  else practice_ghost.visible = false;
+  practice_prompt = save_prompt;
+}
 static unsigned supersample=1;
 bool FzeroRendererSetSupersample(unsigned samples) {
   if(samples<1 || samples>4)return false;
@@ -705,6 +712,9 @@ typedef struct FzeroRenderBatch {
   SnesHdFrame *jobs;
   int picture, tilemap;
   bool jobs_ok;
+  FzeroShip ghost;
+  uint16_t ghost_palette[16];
+  bool ghost_prompt;
 } FzeroRenderBatch;
 
 static bool publish_native(SnesHdFrame *jobs, unsigned y, const uint32_t *row, unsigned width) {
@@ -727,8 +737,15 @@ static void render_lines(void *opaque, size_t begin, size_t end, unsigned slot) 
   bool race_hud = batch->race_hud, interpolate = batch->interpolate;
   uint16_t object_pixels[FZERO_MAX_WIDTH];
   uint32_t row[FZERO_MAX_WIDTH];
+  uint16_t ghost_palette[256];
   for (int y = (int)begin; y < (int)end; ++y) {
     const FzeroRasterLine *l = &f->lines[y];
+    const uint16_t *palette = l->palette;
+    if (batch->ghost.visible) {
+      memcpy(ghost_palette, palette, sizeof(ghost_palette));
+      memcpy(ghost_palette + 208, batch->ghost_palette, sizeof(batch->ghost_palette));
+      palette = ghost_palette;
+    }
     memcpy(scanout, l->registers, PPU_SAVESTATE_REGS_SIZE);
     if (scanout->inidisp & 128) {
       if (batch->jobs && !publish_native(batch->jobs, y, out + (size_t)y * viewport.width, viewport.width)) batch->jobs_ok = false;
@@ -739,7 +756,7 @@ static void render_lines(void *opaque, size_t begin, size_t end, unsigned slot) 
       /* Flat selection/loading screens keep their original centered artwork,
        * but their backdrop, fades and colour windows cover the full viewport. */
       for (int sx = 0; sx < viewport.width; ++sx)
-        row[sx] = colour(scanout, l->palette, 0x500, 0x500,
+        row[sx] = colour(scanout, palette, 0x500, 0x500,
             in_window(scanout, 5, sx - viewport.extra, viewport.extra));
       memcpy(row + viewport.extra, f->stock + y * 256, 256 * sizeof(*out));
       expand_line(out, row, y, viewport.width, scale);
@@ -774,11 +791,21 @@ static void render_lines(void *opaque, size_t begin, size_t end, unsigned slot) 
         }
       }
     }
-    if (world || results)
+    if ((world || results) && !batch->ghost_prompt)
       sprites(scanout, f, interpolate ? previous : NULL, alpha, y, viewport,
               race_hud, results, object_pixels);
     else
       memset(object_pixels, 0, (size_t)viewport.width * sizeof(*object_pixels));
+    if (batch->ghost.visible && y >= batch->ghost.y && y < batch->ghost.y + 64) {
+      int gy = y - batch->ghost.y;
+      for (int gx = 0; gx < 64; ++gx) {
+        int sx = batch->ghost.x + viewport.extra + gx;
+        unsigned pixel = batch->ghost.pixels[gy * 64 + gx];
+        /* Native text, HUD and the player's vehicle keep their OBJ priority. */
+        if (pixel && sx >= 0 && sx < viewport.width && !object_pixels[sx])
+          object_pixels[sx] = 0xe400 | (208 + pixel);
+      }
+    }
     /* Successful results retain the frozen course. Its spatial sampling
      * stays HD even though actor/camera interpolation has stopped. */
     bool hd_line = (scale > 1 || batch->jobs) && (world || result_scenery) && mode == 7 &&
@@ -831,7 +858,7 @@ static void render_lines(void *opaque, size_t begin, size_t end, unsigned slot) 
         if (race_hud && mode == 1 && y >= 19 && y <= 27 &&
             scanout->window1left >= 176 && scanout->window1right <= 239)
           colour_x -= viewport.extra;
-        row[sx] = colour(scanout, l->palette, screens[0], screens[1],
+        row[sx] = colour(scanout, palette, screens[0], screens[1],
             in_window(scanout, 5, colour_x, black_results ? 0 : viewport.extra));
       }
       /* Preserve the meter's composed fill, including its fixed-colour HDMA,
@@ -910,11 +937,11 @@ static void render_lines(void *opaque, size_t begin, size_t end, unsigned slot) 
       j.active_right = 256 + viewport.extra; j.control = scanout->m7sel;
       j.fixed_color = scanout->fixedColor; j.brightness = scanout->inidisp & 15;
       j.cgwsel = scanout->cgwsel; j.cgadsub = scanout->cgadsub;
-      memcpy(j.palette, l->palette, sizeof(j.palette));
+      memcpy(j.palette, palette, sizeof(j.palette));
       memcpy(j.native, row, viewport.width * sizeof(*row));
       for (int sx = 0; sx < viewport.width; ++sx) {
         const FzeroHdPixelContext *c = &contexts[sx];
-        j.object[sx] = object_pixels[sx]; j.object_color[sx] = l->palette[object_pixels[sx] & 255];
+        j.object[sx] = object_pixels[sx]; j.object_color[sx] = palette[object_pixels[sx] & 255];
         j.visibility[sx] = (c->flags & 3) | ((c->flags & 4) << 2) |
             (c->objects[0] ? 4 : 0) | (c->objects[1] ? 8 : 0);
       }
@@ -1001,6 +1028,24 @@ static bool render_frame(FzeroRenderView *view, uint32_t *out, FzeroViewport vie
     .world = world, .race_hud = race_hud, .interpolate = interpolate,
     .jobs = jobs, .picture = picture, .tilemap = tilemap, .jobs_ok = true
   };
+  batch.ghost_prompt = view == &single_player && practice_prompt;
+  if (view == &single_player && practice_ghost.visible) {
+    batch.ghost = practice_ghost;
+    unsigned count = 0;
+    uint32_t colors[16] = {0};
+    for (unsigned i = 0; i < 64 * 64; ++i) {
+      uint32_t color = batch.ghost.pixels[i];
+      if (!color) continue;
+      unsigned index = 1;
+      while (index <= count && colors[index] != color) ++index;
+      if (index > count && count < 15) {
+        colors[++count] = color;
+        batch.ghost_palette[count] = ((color >> 19) & 31) |
+            ((color >> 11) & 31) << 5 | ((color >> 3) & 31) << 10;
+      }
+      batch.ghost.pixels[i] = index <= 15 ? index : 0;
+    }
+  } else batch.ghost.visible = false;
   /* Native packet preparation may already be one task in a camera batch.
    * No row pool is needed there; calling even a NULL worker pool would be
    * a nested submission and is deliberately rejected by the shared API. */

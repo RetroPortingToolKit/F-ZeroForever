@@ -292,54 +292,105 @@ static bool league_panel_loaded(void) {
   }
   return false;
 }
+/* Results prompts use the original two-plane OBJ lettering, including its
+ * black outline and palette shading. These resources also exist in retail. */
+static void prompt_tile(Canvas c, int x, int y, unsigned tile, unsigned palette, bool flip_y) {
+  const uint8_t *glyph = FzeroNativeLetterTile(g_snes->cart->rom, g_snes->cart->romSize, tile);
+  if (!glyph) return;
+  for (unsigned yy = 0; yy < 8; ++yy) {
+    unsigned row = flip_y ? 7 - yy : yy;
+    for (unsigned xx = 0; xx < 8; ++xx) {
+      unsigned pixel = (glyph[row * 2] >> (7-xx) & 1) |
+          (glyph[row * 2 + 1] >> (7-xx) & 1) << 1;
+      if (pixel) box(c, x + xx, y + yy, 1, 1,
+                     record_color(g_snes->ppu->cgram[128 + palette * 16 + pixel]));
+    }
+  }
+}
+static void prompt_text(Canvas c, int x, int y, const char *label, unsigned palette) {
+  static const uint8_t alphabet[] = {
+    0x64,0x65,0x66,0x67,0x68,0x69,0x6a,0x6b,0x8e,0x6c,0x6e,0x6f,0x8a,
+    0x8b,0x8c,0x8d,0x6d,0x8f,0xa0,0xa1,0xa2,0xa3,0xa4,0xa6,0xa5,0xa7
+  };
+  for (unsigned i = 0; label[i]; ++i) {
+    unsigned ch = label[i];
+    unsigned tile = ch >= 'A' && ch <= 'Z' ? alphabet[ch-'A'] : ch == '?' ? 0xa9 : 0;
+    if (!tile) continue;
+    prompt_tile(c, x + i*8, y, tile, palette, false);
+    prompt_tile(c, x + i*8, y+8, tile+16, palette, false);
+  }
+}
+static void prompt_bracket(Canvas c, int x, int y, bool right) {
+  unsigned tile = right ? 0xba : 0xaa;
+  prompt_tile(c, x, y, tile, 2, false);
+  prompt_tile(c, x, y+8, tile, 2, true);
+}
 static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
   FzeroPracticeGhostView view = FzeroPracticeGhostViewAt(ram);
   if (view.panel == FZERO_GHOST_PANEL_RIVAL) {
+    /* Substate 4 begins while the car card is still fading out. The actual
+     * RIVAL heading in BG2 owns the visible panel, including its fade-in. */
+    const Ppu *ppu = g_snes->ppu;
+    unsigned map = (ppu->bgXsc[1] & 0xfc) * 256;
+    static const unsigned rival[] = {0xd3, 0xca, 0xd7, 0xaf, 0xcd};
+    for (unsigned i = 0; i < 5; ++i)
+      if ((ppu->vram[(map + 8 * 32 + 17 + i) & 0x7fff] & 1023) != rival[i])
+        return;
     if (view.selected) {
-      box(c, 119, 148, 82, 18, 0xff000000);
-      text(c, 136, 153, "NO RIVAL", 8, 0xff808080);
-      text(c, 124, 173, ">", 1, 0xffffff00);
+      box(c, 119, 150, 90, 16, 0xff000000);
+      menu_text(c, 136, 152, "NO RIVAL", 8, MENU_GREY);
+      /* Reuse the stock cursor's OBJ tile, moved to the added row. */
+      unsigned at = (ppu->obsel & 7) * 8192 + 0x12f * 16;
+      for (unsigned y = 0; y < 8; ++y)
+        for (unsigned x = 0; x < 8; ++x) {
+          unsigned bits = ppu->vram[(at + y) & 0x7fff];
+          unsigned high = ppu->vram[(at + y + 8) & 0x7fff];
+          unsigned pixel = (bits >> (7-x) & 1) | (bits >> (15-x) & 1) << 1 |
+              (high >> (7-x) & 1) << 2 | (high >> (15-x) & 1) << 3;
+          if (pixel) box(c, 127 - x, 168 + y, 1, 1, record_color(ppu->cgram[144 + pixel]));
+        }
     }
-    text(c, 136, 173, "GHOST", 5, view.selected ? 0xffffff55 : 0xff808080);
+    menu_text(c, 136, 168, "GHOST", 5, view.selected ? MENU_CYAN : MENU_GREY);
     return;
   }
   if (view.panel == FZERO_GHOST_PANEL_CHOOSE) {
     box(c, 66, 174, 181, 48, 0xff000000);
     if (view.error != FZERO_GHOST_OK) {
-      text(c, 73, 179, "GHOST UNAVAILABLE", 21, 0xffffff8a);
+      menu_text(c, 73, 179, "GHOST UNAVAILABLE", 21, MENU_YELLOW);
     } else if (!view.count) {
-      text(c, 73, 179, "NO SAVED GHOSTS", 21, 0xffd0f4f8);
-      text(c, 73, 191, "RACE TO RECORD ONE", 21, 0xffd0f4f8);
+      menu_text(c, 73, 179, "NO SAVED GHOSTS", 21, MENU_CYAN);
+      menu_text(c, 73, 191, "RACE TO RECORD ONE", 21, MENU_CYAN);
     } else {
       char label[32];
       unsigned time = view.run.finish_centiseconds;
-      text(c, 73, 178, FzeroMachineName(view.run.machine), 21, 0xffffff55);
+      menu_text(c, 73, 178, FzeroMachineName(view.run.machine), 21, MENU_YELLOW);
       if (time)
         snprintf(label, sizeof(label), "%u:%02u.%02u  %u/%u", time / 6000,
                  time / 100 % 60, time % 100, view.index + 1, view.count);
       else
         snprintf(label, sizeof(label), "LEGACY RUN  %u/%u", view.index + 1, view.count);
-      text(c, 73, 189, label, 21, 0xffd0f4f8);
+      menu_text(c, 73, 189, label, 21, MENU_CYAN);
     }
-    if (view.count > 1) text(c, 73, 200, "L/R GHOST", 21, 0xffd0f4f8);
-    text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, 0xffd0f4f8);
+    if (view.count > 1) menu_text(c, 73, 200, "L/R GHOST", 21, MENU_CYAN);
+    menu_text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, MENU_CYAN);
     return;
   }
   if (view.panel == FZERO_GHOST_PANEL_SAVE || view.panel == FZERO_GHOST_PANEL_SAVED ||
       view.panel == FZERO_GHOST_PANEL_INCOMPLETE) {
-    box(c, 38, 125, 180, 59, 0xffd6b842);
-    box(c, 40, 127, 176, 55, 0xff000000);
     if (view.panel != FZERO_GHOST_PANEL_SAVE) {
       const char *status = view.panel == FZERO_GHOST_PANEL_SAVED ?
           "GHOST SAVED" : "GHOST INCOMPLETE";
-      text(c, 76, 137, status, 17, 0xffffff55);
-      text(c, 76, 160, "A TO CONTINUE", 14, 0xffd0f4f8);
+      prompt_text(c, 64, 80, status, 0);
+      prompt_text(c, 80, 112, "A TO CONTINUE", 3);
       return;
     }
-    text(c, 80, 137, "SAVE GHOST?", 11, 0xffffff55);
+    prompt_text(c, 80, 80, "SAVE GHOST ?", 0);
     if (view.error != FZERO_GHOST_OK)
-      text(c, 56, 150, view.error == FZERO_GHOST_FULL ? "STORAGE LIMIT" : "SAVE FAILED", 19, 0xffffff8a);
-    text(c, 80, 166, view.selected ? "> YES    NO" : "  YES  > NO", 14, 0xffd0f4f8);
+      prompt_text(c, 72, 144, view.error == FZERO_GHOST_FULL ? "STORAGE LIMIT" : "SAVE FAILED", 2);
+    prompt_text(c, 80, 112, "YES", 1);
+    prompt_text(c, 152, 112, "NO", 3);
+    prompt_bracket(c, view.selected ? 68 : 140, 112, false);
+    prompt_bracket(c, view.selected ? 104 : 168, 112, true);
   }
 }
 
@@ -354,7 +405,6 @@ void FzeroTracksOverlay(uint32_t *pixels, unsigned width, unsigned height, size_
   Canvas c = {pixels, pitch, scale, (width / scale - 256) / 2,
               brightness & 128 ? 0 : brightness & 15};
   if (c.brightness) {
-    FzeroPracticeGhostDrawShip(pixels, width, height, pitch, ram);
     practice_ghost_overlay(c, ram);
   }
   if (!FzeroTracksMenuVisibleAt(ram) || !league_panel_loaded())
