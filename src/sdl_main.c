@@ -1043,7 +1043,7 @@ static uint32_t controller_input(SDL_GameController *pad) {
 /* The launcher's Volume slider, 0..100. Applied to the rendered block rather
  * than to the device, so it works identically on both SDL generations and on
  * whatever backend the player has. */
-static int g_audio_volume = 100;
+static SDL_atomic_t g_audio_volume = {100};
 static FILE *g_test_audio_output;
 
 static void fill_audio(Uint8 *stream, int len) {
@@ -1055,10 +1055,10 @@ static void fill_audio(Uint8 *stream, int len) {
   RtlRenderAudio((int16_t *)stream, len / 4, 2);
   if(g_test_audio_output && ftell(g_test_audio_output)<16*1024*1024)
     fwrite(stream,1,(size_t)len,g_test_audio_output);
-  if (g_audio_volume < 100) {
+  const int gain = SDL_AtomicGet(&g_audio_volume);
+  if (gain < 100) {
     int16_t *samples = (int16_t *)stream;
     int count = len / (int)sizeof(int16_t);
-    int gain = g_audio_volume < 0 ? 0 : g_audio_volume;
     for (int i = 0; i < count; i++)
       samples[i] = (int16_t)((samples[i] * gain) / 100);
   }
@@ -1329,6 +1329,8 @@ typedef struct FzeroHotkey {
 static FzeroHotkey g_hotkey_menu;
 static FzeroHotkey g_hotkey_rewind;
 static FzeroHotkey g_hotkey_fps;
+static FzeroHotkey g_hotkey_volume_up;
+static FzeroHotkey g_hotkey_volume_down;
 
 static FzeroHotkey resolve_hotkey(const char *name, const char *fallback) {
   FzeroHotkeySpec spec;
@@ -1357,6 +1359,19 @@ static int hotkey_matches(const FzeroHotkey *hk, SDL_Keycode key, Uint16 mod) {
   if (mod & KMOD_CTRL) have |= FZERO_HOTKEY_MOD_CTRL;
   if (mod & KMOD_ALT) have |= FZERO_HOTKEY_MOD_ALT;
   return have == hk->mods;
+}
+
+static int adjust_volume(int delta) {
+  int volume = SDL_AtomicGet(&g_audio_volume) + delta;
+  if (volume < 0) volume = 0;
+  if (volume > 100) volume = 100;
+  SDL_AtomicSet(&g_audio_volume, volume);
+  char value[16], message[48];
+  snprintf(value, sizeof(value), "%d", volume);
+  launcher_ini_kv_write(g_config_path, "Sound", "Volume", value);
+  snprintf(message, sizeof(message), "Volume: %d%%", volume);
+  snes_osd_push(message, 1500);
+  return volume;
 }
 
 /* ── In-game overlays ─────────────────────────────────────────────────────
@@ -1741,22 +1756,30 @@ static void selftest_release_all(void) {
 
 /* A synthetic key press, so the keyboard binding is tested through the same
  * event pump a real one goes through — hotkey_matches included. */
-static void selftest_push_key(SDL_Keycode key) {
+static void selftest_push_key_mod(SDL_Keycode key, unsigned mods) {
   SDL_Event e;
   memset(&e, 0, sizeof(e));
   e.type = SDL_KEYDOWN;
 #if SNESRECOMP_SDL3
   e.key.key = key;
+  e.key.mod = (mods & FZERO_HOTKEY_MOD_CTRL ? KMOD_CTRL : 0) |
+              (mods & FZERO_HOTKEY_MOD_ALT ? KMOD_ALT : 0) |
+              (mods & FZERO_HOTKEY_MOD_SHIFT ? KMOD_SHIFT : 0);
   e.key.scancode = SDL_GetScancodeFromKey(key, NULL);
   e.key.down = true;
   e.key.repeat = false;
 #else
   e.key.keysym.sym = key;
+  e.key.keysym.mod = (mods & FZERO_HOTKEY_MOD_CTRL ? KMOD_CTRL : 0) |
+                     (mods & FZERO_HOTKEY_MOD_ALT ? KMOD_ALT : 0) |
+                     (mods & FZERO_HOTKEY_MOD_SHIFT ? KMOD_SHIFT : 0);
   e.key.state = SDL_PRESSED;
   e.key.repeat = 0;
 #endif
   SDL_PushEvent(&e);
 }
+
+static void selftest_push_key(SDL_Keycode key) { selftest_push_key_mod(key, 0); }
 
 static void selftest_attach(void) {
   const char *v = getenv("FZERO_OVERLAY_SELFTEST");
@@ -1793,6 +1816,30 @@ static void selftest_attach(void) {
 static void selftest_main_tick(long frame) {
   if (!g_selftest_pad) return;
   if (g_selftest_frame < 0 && !g_menu_pad_replay) return;
+  if (getenv("FZERO_TEST_VOLUME_HOTKEYS")) {
+    static unsigned step;
+    static int expected;
+    if (!step && frame >= g_selftest_frame) {
+      expected = SDL_AtomicGet(&g_audio_volume);
+      if (g_hotkey_volume_down.bound) expected = expected < 5 ? 0 : expected - 5;
+      selftest_push_key_mod(g_hotkey_volume_down.bound ? g_hotkey_volume_down.key : SDL_GetKeyFromName("Keypad -"), g_hotkey_volume_down.mods);
+      step = 1;
+    } else if ((step == 1 && frame >= g_selftest_frame + 8) ||
+               (step == 3 && frame >= g_selftest_frame + 24)) {
+      int saved = -1;
+      if (SDL_AtomicGet(&g_audio_volume) != expected ||
+          !FzeroIniReadInt(g_config_path, "Sound", "Volume", &saved) || saved != expected) {
+        fputs("volume-hotkeys-selftest: FAIL gain/persistence\n", stderr);
+        g_selftest_failed = 1; step = 4;
+      } else if (step == 1) step = 2;
+      else { fprintf(stderr, "volume-hotkeys-selftest: PASS gain=%d saved=%d down=%d up=%d\n", expected, saved, g_hotkey_volume_down.bound, g_hotkey_volume_up.bound); step = 4; }
+    } else if (step == 2 && frame >= g_selftest_frame + 16) {
+      if (g_hotkey_volume_up.bound) expected = expected > 95 ? 100 : expected + 5;
+      selftest_push_key_mod(g_hotkey_volume_up.bound ? g_hotkey_volume_up.key : SDL_GetKeyFromName("Keypad +"), g_hotkey_volume_up.mods);
+      step = 3;
+    }
+    return;
+  }
   /* Reuse the real SDL hotkey fixture for the optional Game FPS contract. */
   if(getenv("FZERO_TEST_FPS_READOUT")) {
     static unsigned step;
@@ -2213,6 +2260,8 @@ static int run_game(int argc, char **argv) {
   g_hotkey_menu = resolve_hotkey("SaveStateMenu", "F7");
   g_hotkey_rewind = resolve_hotkey("Rewind", "R");
   g_hotkey_fps = resolve_hotkey("DisplayPerf", "F");
+  g_hotkey_volume_up = resolve_hotkey("VolumeUp", "Keypad +");
+  g_hotkey_volume_down = resolve_hotkey("VolumeDown", "Keypad -");
   snes_osd_set_fps_visible(g_video.fps_readout);
   memcpy(g_quick_keys, launcher_settings.assist_key_bind, sizeof(g_quick_keys));
   memcpy(g_quick_pads, launcher_settings.assist_pad_bind, sizeof(g_quick_pads));
@@ -2487,8 +2536,7 @@ static int run_game(int argc, char **argv) {
   if (capture_mode) audio_freq = HeadlessCapture_AudioRate();
   wanted.freq = audio_freq;
   RtlSetAudioOutputRate(audio_freq);
-  g_audio_volume = launcher_settings.volume;
-  if (g_audio_volume < 0 || g_audio_volume > 100) g_audio_volume = 100;
+  SDL_AtomicSet(&g_audio_volume, launcher_settings.volume < 0 || launcher_settings.volume > 100 ? 100 : launcher_settings.volume);
   if(!FzeroCalloutsConfigure(g_video.lap_callouts,g_video.lap_boost_wav,g_video.final_lap_wav,g_video.lap_boost_second_lap_only,g_video.finish_wav))
     fputs("[lap-callouts] Both WAV recordings are required; callouts disabled.\n",stderr);
   wanted.format = AUDIO_S16SYS;
@@ -2692,6 +2740,14 @@ static int run_game(int argc, char **argv) {
         continue;
       }
       if (event.type == SDL_KEYDOWN) {
+        if (hotkey_matches(&g_hotkey_volume_down, SNESRECOMP_SDL_EVENT_KEY(event), (Uint16)SNESRECOMP_SDL_EVENT_MOD(event))) {
+          launcher_settings.volume = adjust_volume(-5);
+          continue;
+        }
+        if (hotkey_matches(&g_hotkey_volume_up, SNESRECOMP_SDL_EVENT_KEY(event), (Uint16)SNESRECOMP_SDL_EVENT_MOD(event))) {
+          launcher_settings.volume = adjust_volume(5);
+          continue;
+        }
 #if SNESRECOMP_SDL3
         int scancode = event.key.scancode;
 #else
