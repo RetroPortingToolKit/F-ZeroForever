@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.2 - Volume shortcuts and clearer Mods labels
+
+- Apply volume shortcuts during play, including custom bindings and cleared
+  keys, and remember volume changes between launches.
+- Show each feature once in the Mods list and keep package versions in Details.
+- Use the host-native frame, audio and DSP providers in desktop builds.
+
 ## 2.1.1 - Controller ownership and Game FPS
 
 - Keep each connected controller assigned to one player. Selecting it for
