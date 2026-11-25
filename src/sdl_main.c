@@ -64,6 +64,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <limits.h>
 #include <string.h>
 
 #ifdef __ANDROID__
@@ -1010,7 +1012,7 @@ static uint32_t g_capture_tick=1;
 static bool g_capture_done;
 static void local_ui_keyboard_state(uint8_t *keys);
 static uint32_t keyboard_guest_input_for_player(unsigned player) {
-  if(HeadlessCapture_Enabled())return HeadlessCapture_Pad(player,g_capture_tick);
+  if(HeadlessCapture_Enabled() || HeadlessCapture_HasInput())return HeadlessCapture_Pad(player,g_capture_tick);
   uint8_t keys[SDL_SCANCODE_COUNT];
   memcpy(keys, snesrecomp_sdl_get_keyboard_state(), sizeof(keys));
   local_ui_keyboard_state(keys);
@@ -1540,8 +1542,7 @@ static void present_frame(const FzeroPresenter *p, const uint32_t *panel,
       RtlRenderAudio(capture_audio,n,2);
       HeadlessCapture_Audio(capture_audio,n,g_capture_tick);
     }
-    if(HeadlessCapture_ExitFrame() && g_capture_tick>=HeadlessCapture_ExitFrame())g_capture_done=true;
-    ++g_capture_tick;
+    if(HeadlessCapture_Failed() || (HeadlessCapture_ExitFrame() && g_capture_tick>=HeadlessCapture_ExitFrame()))g_capture_done=true;
     return;
   }
   SDL_Rect source = {0, 0, width, height};
@@ -2055,6 +2056,15 @@ static void restart_mode_capture(void) {
   if(*FzeroCaptureDirectory())host_report_set_output_directory(FzeroCaptureDirectory());
 }
 #include "../tests/fzero_online_ui_driver.h"
+static bool capture_number(const char *text, long *value) {
+  char *end = NULL;
+  errno = 0;
+  long parsed = strtol(text, &end, 10);
+  if (errno || end == text || *end || parsed < 0) return false;
+  *value = parsed;
+  return true;
+}
+
 static int run_game(int argc, char **argv) {
   SDL_SetMainReady();
 #ifdef __ANDROID__
@@ -2073,7 +2083,7 @@ static int run_game(int argc, char **argv) {
   FzeroVersusConfig local_config={0,{0,1,2,3},2};
   /* Headless capture flags (desktop/headless_capture.h) come out of argv first. */
   static SnesrecompHostArgs capture_args;
-  static char capture_out_abs[1024],capture_wav_abs[1024],capture_input_abs[1024];
+  static char capture_out_abs[1024],capture_wav_abs[1024],capture_input_abs[1024],capture_state_abs[1024];
   bool capture_mode=false;
   {
     capture_args.capture_from=capture_args.capture_to=capture_args.exit_at_frame=-1;
@@ -2081,18 +2091,22 @@ static int run_game(int argc, char **argv) {
     int kept=1;
     for(int i=1;i<argc;++i) {
       const char *a=argv[i];const bool value=i+1<argc;
-      if(value && !strcmp(a,"--capture-out")){snesrecomp_abspath(argv[++i],capture_out_abs,sizeof capture_out_abs);capture_args.capture_out=capture_out_abs;}
-      else if(value && !strcmp(a,"--capture-wav")){snesrecomp_abspath(argv[++i],capture_wav_abs,sizeof capture_wav_abs);capture_args.capture_wav=capture_wav_abs;}
-      else if(value && !strcmp(a,"--input-script")){snesrecomp_abspath(argv[++i],capture_input_abs,sizeof capture_input_abs);capture_args.input_script=capture_input_abs;}
-      else if(value && !strcmp(a,"--capture-size")){if(sscanf(argv[++i],"%dx%d",&capture_args.capture_width,&capture_args.capture_height)!=2)return 2;}
-      else if(value && !strcmp(a,"--capture-from"))capture_args.capture_from=atol(argv[++i]);
-      else if(value && !strcmp(a,"--capture-to"))capture_args.capture_to=atol(argv[++i]);
-      else if(value && !strcmp(a,"--capture-every")){capture_args.capture_every=atoi(argv[++i]);if(capture_args.capture_every<1)capture_args.capture_every=1;}
-      else if(value && !strcmp(a,"--exit-at-frame"))capture_args.exit_at_frame=atol(argv[++i]);
+      if(value && !strcmp(a,"--capture-out")){if(!snesrecomp_abspath(argv[++i],capture_out_abs,sizeof capture_out_abs))return 2;capture_args.capture_out=capture_out_abs;}
+      else if(value && !strcmp(a,"--capture-wav")){if(!snesrecomp_abspath(argv[++i],capture_wav_abs,sizeof capture_wav_abs))return 2;capture_args.capture_wav=capture_wav_abs;}
+      else if(value && !strcmp(a,"--input-script")){if(!snesrecomp_abspath(argv[++i],capture_input_abs,sizeof capture_input_abs))return 2;capture_args.input_script=capture_input_abs;}
+      else if(value && !strcmp(a,"--capture-size")){char extra;if(sscanf(argv[++i],"%dx%d%c",&capture_args.capture_width,&capture_args.capture_height,&extra)!=2 || capture_args.capture_width<16 || capture_args.capture_height<16 || capture_args.capture_width>16384 || capture_args.capture_height>16384)return 2;}
+      else if(value && !strcmp(a,"--capture-from")){if(!capture_number(argv[++i],&capture_args.capture_from))return 2;}
+      else if(value && !strcmp(a,"--capture-to")){if(!capture_number(argv[++i],&capture_args.capture_to))return 2;}
+      else if(value && !strcmp(a,"--capture-every")){long every;if(!capture_number(argv[++i],&every) || every<1 || every>INT_MAX)return 2;capture_args.capture_every=(int)every;}
+      else if(value && !strcmp(a,"--exit-at-frame")){if(!capture_number(argv[++i],&capture_args.exit_at_frame))return 2;}
+      else if(value && !strcmp(a,"--load-state")){if(!snesrecomp_abspath(argv[++i],capture_state_abs,sizeof capture_state_abs))return 2;capture_args.load_state=capture_state_abs;}
       else argv[kept++]=argv[i];
     }
     argc=kept;argv[argc]=NULL;
+    if(capture_args.capture_from>=0 && capture_args.capture_to>=0 && capture_args.capture_from>capture_args.capture_to)return 2;
     capture_mode=HeadlessCapture_Configure(&capture_args);
+    if(HeadlessCapture_Failed()){HeadlessCapture_Finish();return 3;}
+    if(capture_mode)HeadlessCapture_SelectVideoDriver(false);
   }
   for (int i = 1; i < argc; ++i) {
     if (!positional_only && !strcmp(argv[i], "--")) { positional_only = true; continue; }
@@ -2266,8 +2280,8 @@ static int run_game(int argc, char **argv) {
   SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
   /* SDL_Init flipped to true-on-success in SDL3 and inverts silently in its
    * old `!= 0` form, so it must route through the shim. */
-  if (!snesrecomp_sdl_init(SDL_INIT_VIDEO | SDL_INIT_AUDIO |
-                           SDL_INIT_GAMECONTROLLER)) {
+  if (!snesrecomp_sdl_init(capture_mode ? SDL_INIT_VIDEO :
+                           SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER)) {
     fprintf(stderr, "SDL initialization failed: %s\n", SDL_GetError());
     free(rom);
     return 3;
@@ -2307,6 +2321,16 @@ static int run_game(int argc, char **argv) {
     Die(*FzeroTracksError() ? FzeroTracksError() : "Cannot create the selected profile's save directory. Use a shorter save root.");
   if (!FzeroMsuSelectSaveRoot()) Die(FzeroMsuError());
   RtlReadSram();
+  if (capture_args.load_state) {
+    if (online || !FzeroStateFileAcceptable(capture_args.load_state) ||
+        !RtlLoadSnapshot(capture_args.load_state)) {
+      fprintf(stderr, "capture: cannot load state '%s'\n", capture_args.load_state);
+      HeadlessCapture_Finish();
+      return 3;
+    }
+    fprintf(stderr, "capture: loaded state '%s'\n", capture_args.load_state);
+  }
+
   /* Same opt-in transport log as Mega Man X's diagnostic recording. Respect
    * an explicit environment override; the shared stack reads this at setup. */
   if(online && g_video.crash_replay && !getenv("SNES_NET_DIAG")) {
@@ -2460,6 +2484,7 @@ static int run_game(int argc, char **argv) {
    * drawn and then ignored, which is why changing either did nothing. */
   int audio_freq = launcher_settings.audio_freq;
   if (audio_freq < 8000 || audio_freq > 96000) audio_freq = 32040;
+  if (capture_mode) audio_freq = HeadlessCapture_AudioRate();
   wanted.freq = audio_freq;
   RtlSetAudioOutputRate(audio_freq);
   g_audio_volume = launcher_settings.volume;
@@ -2474,6 +2499,7 @@ static int run_game(int argc, char **argv) {
     if(!g_test_audio_output)Die("Cannot open test audio output");
   }
   SDL_AudioDeviceID audio = 0;
+  if (!capture_mode) {
 #if SNESRECOMP_SDL3
   /* SDL_AudioSpec has no `samples`/`callback` in SDL3: the device is opened as
    * a stream and the callback is supplied separately. */
@@ -2486,8 +2512,9 @@ static int run_game(int argc, char **argv) {
   wanted.callback = audio_callback;
   audio = SDL_OpenAudioDevice(NULL, 0, &wanted, &obtained, 0);
 #endif
-  if (!audio && !capture_mode) Die("Unable to open the audio device");
+  if (!audio) Die("Unable to open the audio device");
   snesrecomp_sdl_pause_audio_device(audio, launcher_settings.enable_audio == 0);
+  }
 
   /* Before the pad scan below, so the virtual pad is the one player 1 gets. */
   selftest_attach();
@@ -2998,6 +3025,7 @@ static int run_game(int argc, char **argv) {
     /* Viewport policy and input sampling change only at simulation boundaries. */
     for (unsigned batch = 0; !panel && !paused && batch < (benchmark ? 1u : 4u) &&
                              (benchmark || FzeroClockSimulationDue(&clock, now)); ++batch) {
+      g_capture_tick=(uint32_t)frames+1;
       selftest_main_tick(frames);
       if (!scripted_save_done && frames == scripted_save.frame) {
         scripted_save_done=true;
@@ -3162,7 +3190,7 @@ static int run_game(int argc, char **argv) {
       snes_rewind_note_framebuffer((const uint32_t *)pixels, logical_width,
                                    FzeroFrameHeight());
       ++presentations;
-      if(g_capture_done)running=0;
+      if(g_capture_done || (HeadlessCapture_ExitFrame() && frames>=HeadlessCapture_ExitFrame()))running=0;
     }
     if (running && !benchmark) {
       uint64_t diagnostic_start = FzeroDiagnosticsBegin();
@@ -3259,7 +3287,7 @@ static int run_game(int argc, char **argv) {
   free(rom);
   /* A self-test that printed FAIL must not exit 0: a harness that only reads
    * the exit status would otherwise record a pass. */
-  return g_selftest_failed ? 4 : 0;
+  return g_selftest_failed ? 4 : HeadlessCapture_Failed() ? 3 : 0;
 }
 #ifdef __ANDROID__
 __attribute__((visibility("default"))) int SDL_main(int argc,char **argv) {
