@@ -369,12 +369,15 @@ bool FzeroPracticeGhostScene(const uint8_t *ram) {
 bool FzeroPracticeGhostBuildShip(FzeroShip *ship, const uint8_t *ram) {
   /* The original ghost occupies the opponent OBJ reservation on alternate
    * simulation frames. Presentation interpolation must keep that cadence. */
-  if (!active(ram) || !race(ram) || !session.playback || !session.sample_count ||
+  if (!active(ram) || !race(ram) || !session.playback || !session.sample_count || !session.target.ticks ||
       session.course != ram[0x53] || !(ram[0x51] & 1))
     return false;
   FzeroGhostPose pose;
   /* The published PPU frame starts before the final logic tick of this host frame. */
   unsigned sample = session.sample_count > 1 ? session.sample_count - 2 : 0;
+  /* Native playback keeps its final pose, with the same flashing cadence,
+   * after the recorded stream ends. It does not fade or remove the rival. */
+  if (sample >= session.target.ticks) sample = session.target.ticks - 1;
   if (!FzeroGhostPoseAt(session.library, sample, &pose)) return false;
   FzeroActor camera = {.x = word(ram, 0xb70), .y = word(ram, 0xb90),
                        .height = word(ram, 0xbc0), .facing = word(ram, 0xbd0), .machine = ram[0x52]};

@@ -99,6 +99,16 @@ def main():
         assert ram[0xcf2] == control_ram[0xcf2] == 255, "A ghost occupied the native rival slot"
         assert frame != control, f"Run {run_id} was selected without a visible rival"
 
+    # Past EOF, the native ghost holds its last pose and continues flashing.
+    # Run 2 remains in view; adjacent frames must contain it exactly once.
+    end_visible = []
+    for frames in (1501, 1502):
+        _, normal_ram, normal = run(f"end-control-{frames}", title + confirm_car + no_rival + preview + race, frames)
+        _, ended_ram, ended = run(f"end-ghost-{frames}", base + ",950:2048" + race, frames)
+        assert ended_ram[0xb00:0x1100] == normal_ram[0xb00:0x1100], "Ghost changed player simulation after EOF"
+        end_visible.append(ended != normal)
+    assert sum(end_visible) == 1, "Ghost must retain its last pose and alternate visibility after EOF"
+
     cosmetic, fixed_race, _ = run("animation-fix", base + race, 1312, FZERO_RULES="cgp-animation",
                                   **dict(capture, FZERO_CAPTURE_PREFIX=str(out / "drift-fixed")))
     assert "racing course=0 run=1 car=0" in cosmetic
