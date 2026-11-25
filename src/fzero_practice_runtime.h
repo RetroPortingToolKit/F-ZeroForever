@@ -34,5 +34,7 @@ void FzeroPracticeGhostLoadState(const FzeroPracticeGhostState *state, const uin
 uint16_t FzeroPracticeGhostInput(uint16_t input, const uint8_t *ram);
 void FzeroPracticeGhostTick(const uint8_t *ram);
 FzeroPracticeGhostView FzeroPracticeGhostViewAt(const uint8_t *ram);
+struct Ppu;
+bool FzeroPracticeGhostRivalVisible(const struct Ppu *ppu, const uint8_t *ram);
 bool FzeroPracticeGhostScene(const uint8_t *ram);
 bool FzeroPracticeGhostBuildShip(FzeroShip *ship, const uint8_t *ram);

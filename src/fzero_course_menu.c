@@ -331,11 +331,7 @@ static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
     /* Substate 4 begins while the car card is still fading out. The actual
      * RIVAL heading in BG2 owns the visible panel, including its fade-in. */
     const Ppu *ppu = g_snes->ppu;
-    unsigned map = (ppu->bgXsc[1] & 0xfc) * 256;
-    static const unsigned rival[] = {0xd3, 0xca, 0xd7, 0xaf, 0xcd};
-    for (unsigned i = 0; i < 5; ++i)
-      if ((ppu->vram[(map + 8 * 32 + 17 + i) & 0x7fff] & 1023) != rival[i])
-        return;
+    if (!FzeroPracticeGhostRivalVisible(ppu, ram)) return;
     if (view.selected) {
       box(c, 119, 150, 90, 16, 0xff000000);
       menu_text(c, 136, 152, "NO RIVAL", 8, MENU_GREY);

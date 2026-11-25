@@ -558,7 +558,8 @@ static void hdma_write_bus(void *context, uint8_t reg, uint8_t value, uint32_t s
 
 void FzeroDrawPpuFrame(void) {
   if(FzeroLocalSession() && !s_restoring_local_assets) {if(!s_deferred_presentation)FzeroPresent(1);return;}
-  const bool capture = FzeroLocalEnabled() || s_viewport.enhanced || s_hd_scale || s_gpu_hd || getenv("FZERO_CAPTURE_FRAME") != NULL ||
+  const bool ghost_scene = FzeroPracticeGhostScene(s_published_ram);
+  const bool capture = ghost_scene || FzeroLocalEnabled() || s_viewport.enhanced || s_hd_scale || s_gpu_hd || getenv("FZERO_CAPTURE_FRAME") != NULL ||
                        getenv("FZERO_CAPTURE_FRAMES") != NULL;
   if (capture) {
     FzeroRendererBeginFrame(s_published_ram, s_host_frames);
@@ -675,6 +676,12 @@ void FzeroDrawPpuFrame(void) {
         memcpy(g_ppu->highOam, event->high_oam, sizeof(event->high_oam));
       }
     }
+    /* Once BG2 owns the rival panel, the previous car card in BG1 is only
+     * staging data. Its incremental erasure must not cover the new panel. */
+    if (FzeroPracticeGhostRivalVisible(g_ppu, s_published_ram)) {
+      g_ppu->screenEnabled[0] &= ~1u;
+      g_ppu->screenEnabled[1] &= ~1u;
+    }
     FzeroVehiclesRaster(g_ppu, s_published_ram, (unsigned)line);
     if (capture) FzeroRendererCaptureLine(g_ppu, line);
     ppu_runLine(g_ppu, line);
@@ -688,7 +695,6 @@ void FzeroDrawPpuFrame(void) {
   ppu_handleVblank(g_ppu);
   if (capture) {
     FzeroRendererEndFrame(g_ppu, s_stock_pixels);
-    bool ghost_scene = FzeroPracticeGhostScene(s_published_ram);
     if (s_viewport.enhanced || s_hd_scale || ghost_scene) {
       if (!s_deferred_presentation && !s_restoring_local_assets) FzeroPresent(1);
     }

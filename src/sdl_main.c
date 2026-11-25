@@ -3094,6 +3094,11 @@ static int run_game(int argc, char **argv) {
       unsigned presentation_scale=!online && g_local_players>2 && local_two_player && cpu_scale>2?2:cpu_scale;
       FzeroSetMode7Hd(hd_pixels?presentation_scale:0,hd_pixels,cpu_capacity);
       FzeroPresent(benchmark ? 1.0 : FzeroClockAlpha(&clock, now));
+      const uint32_t *composed = FzeroHdFrame();
+      unsigned composed_scale = composed ? FzeroHdScale() : 1;
+      debug_server_note_composed_frame(composed ? composed : (const uint32_t *)pixels,
+          logical_width * composed_scale * 4, logical_width * composed_scale,
+          FzeroFrameHeight() * composed_scale);
       FzeroDiagnosticsEnd(FZERO_DIAG_COMPOSITION, diagnostic_start);
       if(online && snes_savestate_menu_is_open())present_overlay(&presenter,1);
       else present_frame(&presenter, NULL, 0, 0, 0);

@@ -7,6 +7,7 @@
 #include "fzero_tracks.h"
 #include "sha256.h"
 #include "snes/cart.h"
+#include "snes/ppu.h"
 #include "snes/snes.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -348,6 +349,16 @@ FzeroPracticeGhostView FzeroPracticeGhostViewAt(const uint8_t *ram) {
 static uint8_t stock_table(void *context, uint32_t address) {
   const uint8_t *data = cart_getRomPtr(context, (uint8_t)(address >> 16), (uint16_t)address);
   return data ? *data : 0;
+}
+
+bool FzeroPracticeGhostRivalVisible(const Ppu *ppu, const uint8_t *ram) {
+  if (!active(ram) || !rival_panel(ram)) return false;
+  unsigned map = (ppu->bgXsc[1] & 0xfc) * 256;
+  static const unsigned rival[] = {0xd3, 0xca, 0xd7, 0xaf, 0xcd};
+  for (unsigned i = 0; i < 5; ++i)
+    if ((ppu->vram[(map + 8 * 32 + 17 + i) & 0x7fff] & 1023) != rival[i])
+      return false;
+  return true;
 }
 
 bool FzeroPracticeGhostScene(const uint8_t *ram) {
