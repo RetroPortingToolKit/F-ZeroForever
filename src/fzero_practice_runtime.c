@@ -17,12 +17,13 @@ extern Snes *g_snes;
 enum {
   BUTTON_B = 1, BUTTON_SELECT = 4, BUTTON_START = 8, BUTTON_UP = 16, BUTTON_DOWN = 32,
   BUTTON_LEFT = 64, BUTTON_RIGHT = 128, BUTTON_A = 256, BUTTON_L = 1024, BUTTON_R = 2048,
-  BUTTON_CONFIRM = BUTTON_A | BUTTON_START,
+  BUTTON_CONFIRM = BUTTON_A | BUTTON_B | BUTTON_START,
   RETAIL_PRACTICE_PROFILE = 1,
   RETAIL_NO_RIVAL_CURSOR = 4,
   RETAIL_NO_RIVAL = 255,
   STATE_RIVAL = 1, STATE_RIVAL_PANEL = 2, STATE_RECORDING = 4, STATE_PLAYBACK = 8,
   STATE_OFFER = 16, STATE_SAVE_YES = 32, STATE_SAVED = 64, STATE_RECORDING_LOST = 128,
+  STATE_RESULTS_WAIT = 256,
 };
 
 static char root[CP_PATH];
@@ -32,6 +33,7 @@ static struct PracticeGhostSession {
   uint16_t previous_input, consumed_input;
   bool rival, was_rival_panel, recording, playback, offer_save, save_yes, saved;
   bool recording_lost;
+  bool results_wait;
   FzeroGhostRun target;
   FzeroGhostResult error;
 } session;
@@ -154,7 +156,8 @@ void FzeroPracticeGhostSaveState(FzeroPracticeGhostState *state) {
       (session.offer_save ? STATE_OFFER : 0) |
       (session.save_yes ? STATE_SAVE_YES : 0) |
       (session.saved ? STATE_SAVED : 0) |
-      (session.recording_lost ? STATE_RECORDING_LOST : 0);
+      (session.recording_lost ? STATE_RECORDING_LOST : 0) |
+      (session.results_wait ? STATE_RESULTS_WAIT : 0);
   state->recording = FzeroGhostRecordingPosition(session.library);
 }
 
@@ -185,6 +188,7 @@ void FzeroPracticeGhostLoadState(const FzeroPracticeGhostState *state, const uin
   session.offer_save = have_course && (flags & STATE_OFFER) != 0;
   session.save_yes = (flags & STATE_SAVE_YES) != 0;
   session.saved = have_course && (flags & STATE_SAVED) != 0;
+  session.results_wait = have_course && (flags & STATE_RESULTS_WAIT) != 0;
   session.sample_count = have_course ? state->samples : 0;
   session.finish_centiseconds = have_course ? state->finish : 0;
   session.error = state->error <= FZERO_GHOST_FULL ? state->error : FZERO_GHOST_INVALID;
@@ -201,7 +205,7 @@ void FzeroPracticeGhostLoadState(const FzeroPracticeGhostState *state, const uin
   /* Rewind can resume an exact prefix already in memory. A cold load still
    * restores the rival, but cannot publish an incomplete new recording. */
   session.recording_lost = (flags & STATE_RECORDING_LOST) != 0 ||
-      ((session.recording || (session.offer_save && !session.saved)) &&
+      ((session.recording || session.results_wait || (session.offer_save && !session.saved)) &&
        !FzeroGhostRestoreRecording(session.library, state->recording));
 }
 
@@ -225,9 +229,8 @@ uint16_t FzeroPracticeGhostInput(uint16_t input, const uint8_t *ram) {
         session.consumed_input |= input & BUTTON_UP;
         return 0;
       }
-      if (pressed & BUTTON_B) session.rival = false;
       /* The retail No Rival choice still owns the actual race transition. */
-      return input & (BUTTON_CONFIRM | BUTTON_B);
+      return input & BUTTON_CONFIRM;
     }
     if (ram[0x5a] == RETAIL_NO_RIVAL_CURSOR && (pressed & BUTTON_DOWN)) {
       session.consumed_input = input & BUTTON_DOWN;
@@ -259,13 +262,20 @@ uint16_t FzeroPracticeGhostInput(uint16_t input, const uint8_t *ram) {
     return input & ~(BUTTON_L | BUTTON_R);
   }
 
+  if (results(ram) && session.results_wait) {
+    /* Preserve the native result display until a fresh confirmation. Consume
+     * its whole hold so it cannot also select an answer or leave results. */
+    if (pressed & BUTTON_CONFIRM) {
+      session.results_wait = false;
+      session.offer_save = true;
+      session.consumed_input |= input & BUTTON_CONFIRM;
+    }
+    return input & ~BUTTON_CONFIRM;
+  }
   if (results(ram) && session.offer_save) {
     if (pressed & (BUTTON_LEFT | BUTTON_RIGHT | BUTTON_UP | BUTTON_DOWN))
       session.save_yes = !session.save_yes;
-    if (pressed & BUTTON_B) {
-      session.offer_save = false;
-      session.consumed_input = input & BUTTON_B;
-    } else if (pressed & BUTTON_CONFIRM) {
+    if (pressed & BUTTON_CONFIRM) {
       session.consumed_input = input & BUTTON_CONFIRM;
       if (session.saved || session.recording_lost || !session.save_yes) {
         session.offer_save = false;
@@ -295,7 +305,7 @@ void FzeroPracticeGhostTick(const uint8_t *ram) {
       load_course(ram, true);
       session.sample_count = 0;
       session.finish_centiseconds = 0;
-      session.saved = session.offer_save = session.save_yes = false;
+      session.saved = session.offer_save = session.save_yes = session.results_wait = false;
       session.recording = true;
       session.recording_lost = false;
       FzeroGhostBeginRun(session.library, ram[0x52]);
@@ -319,7 +329,7 @@ void FzeroPracticeGhostTick(const uint8_t *ram) {
     if (ram[0xd40] == 5 && session.sample_count) {
       session.finish_centiseconds = decimal(ram[0xc0]) * 6000 +
           decimal(ram[0xc1]) * 100 + decimal(ram[0xc2]);
-      session.offer_save = true;
+      session.results_wait = true;
     }
   }
 }

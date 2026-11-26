@@ -350,25 +350,28 @@ static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
     return;
   }
   if (view.panel == FZERO_GHOST_PANEL_CHOOSE) {
+    /* Course preview has replaced the menu's live VRAM glyphs and palettes.
+     * Use the native records font in the immutable cartridge for this panel. */
+    const uint32_t cyan = 0xff4affff, yellow = 0xffffff00;
     box(c, 66, 174, 181, 48, 0xff000000);
     if (view.error != FZERO_GHOST_OK) {
-      menu_text(c, 73, 179, "GHOST UNAVAILABLE", 21, MENU_YELLOW);
+      record_text(c, 73, 179, "GHOST UNAVAILABLE", 21, yellow);
     } else if (!view.count) {
-      menu_text(c, 73, 179, "NO SAVED GHOSTS", 21, MENU_CYAN);
-      menu_text(c, 73, 191, "RACE TO RECORD ONE", 21, MENU_CYAN);
+      record_text(c, 73, 179, "NO SAVED GHOSTS", 21, cyan);
+      record_text(c, 73, 191, "RACE TO RECORD ONE", 21, cyan);
     } else {
       char label[32];
       unsigned time = view.run.finish_centiseconds;
-      menu_text(c, 73, 178, FzeroMachineName(view.run.machine), 21, MENU_YELLOW);
+      record_text(c, 73, 178, FzeroMachineName(view.run.machine), 21, yellow);
       if (time)
         snprintf(label, sizeof(label), "%u:%02u.%02u  %u/%u", time / 6000,
                  time / 100 % 60, time % 100, view.index + 1, view.count);
       else
         snprintf(label, sizeof(label), "LEGACY RUN  %u/%u", view.index + 1, view.count);
-      menu_text(c, 73, 189, label, 21, MENU_CYAN);
+      record_text(c, 73, 189, label, 21, cyan);
     }
-    if (view.count > 1) menu_text(c, 73, 200, "L/R GHOST", 21, MENU_CYAN);
-    menu_text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, MENU_CYAN);
+    if (view.count > 1) record_text(c, 73, 200, "L/R GHOST", 21, cyan);
+    record_text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, cyan);
     return;
   }
   if (view.panel == FZERO_GHOST_PANEL_SAVE || view.panel == FZERO_GHOST_PANEL_SAVED ||
@@ -377,7 +380,7 @@ static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
       const char *status = view.panel == FZERO_GHOST_PANEL_SAVED ?
           "GHOST SAVED" : "GHOST INCOMPLETE";
       prompt_text(c, 64, 80, status, 0);
-      prompt_text(c, 80, 112, "A TO CONTINUE", 3);
+      prompt_text(c, 104, 112, "A OR B", 3);
       return;
     }
     prompt_text(c, 80, 80, "SAVE GHOST ?", 0);

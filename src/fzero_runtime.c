@@ -676,12 +676,6 @@ void FzeroDrawPpuFrame(void) {
         memcpy(g_ppu->highOam, event->high_oam, sizeof(event->high_oam));
       }
     }
-    /* Once BG2 owns the rival panel, the previous car card in BG1 is only
-     * staging data. Its incremental erasure must not cover the new panel. */
-    if (FzeroPracticeGhostRivalVisible(g_ppu, s_published_ram)) {
-      g_ppu->screenEnabled[0] &= ~1u;
-      g_ppu->screenEnabled[1] &= ~1u;
-    }
     FzeroVehiclesRaster(g_ppu, s_published_ram, (unsigned)line);
     if (capture) FzeroRendererCaptureLine(g_ppu, line);
     ppu_runLine(g_ppu, line);
@@ -806,7 +800,7 @@ static bool online_frame_begin(uint32_t *inputs) {
 
 enum {
   kFzeroStateMagic = 0x4f52465au, /* "zFRO" */
-  kFzeroStateVersion = 3u,
+  kFzeroStateVersion = 4u,
 };
 
 /* ── Snapshot mode guard ──────────────────────────────────────────────────
