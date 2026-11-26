@@ -63,7 +63,8 @@ static const char crash_description[] =
   "Restart after changing this setting.";
 static const char ghosts_description[] =
   "Enabled by default. Finish a Practice race with No Rival or Ghost selected, then choose Save Ghost. "
-  "In Vanilla, the course preview shows the fastest saved run for that course. Use L/R to pick another run. "
+  "Confirm the highlighted Yes/No choice with B. "
+  "In Vanilla, Ghost races the fastest saved run for the selected course. Use L/R on the course preview to pick another run. "
   "Built-in presets keep your ghost setting. Saved mod presets include it. "
   "Turning ghosts off keeps your saved runs.";
 static const char records_description[] =

@@ -8,8 +8,6 @@ typedef enum FzeroPracticeGhostPanel {
   FZERO_GHOST_PANEL_RIVAL,
   FZERO_GHOST_PANEL_CHOOSE,
   FZERO_GHOST_PANEL_SAVE,
-  FZERO_GHOST_PANEL_SAVED,
-  FZERO_GHOST_PANEL_INCOMPLETE,
 } FzeroPracticeGhostPanel;
 
 typedef struct FzeroPracticeGhostView {

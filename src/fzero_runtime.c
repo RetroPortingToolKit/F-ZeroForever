@@ -800,7 +800,7 @@ static bool online_frame_begin(uint32_t *inputs) {
 
 enum {
   kFzeroStateMagic = 0x4f52465au, /* "zFRO" */
-  kFzeroStateVersion = 4u,
+  kFzeroStateVersion = 5u,
 };
 
 /* ── Snapshot mode guard ──────────────────────────────────────────────────

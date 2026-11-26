@@ -6,7 +6,6 @@
 #include "fzero_records.h"
 #include "fzero_native_font.h"
 #include "fzero_practice_runtime.h"
-#include "fzero_machine.h"
 #include "snes/cart.h"
 #include "snes/ppu.h"
 extern Snes *g_snes;
@@ -350,39 +349,13 @@ static void practice_ghost_overlay(Canvas c, const uint8_t *ram) {
     return;
   }
   if (view.panel == FZERO_GHOST_PANEL_CHOOSE) {
-    /* Course preview has replaced the menu's live VRAM glyphs and palettes.
-     * Use the native records font in the immutable cartridge for this panel. */
-    const uint32_t cyan = 0xff4affff, yellow = 0xffffff00;
-    box(c, 66, 174, 181, 48, 0xff000000);
-    if (view.error != FZERO_GHOST_OK) {
-      record_text(c, 73, 179, "GHOST UNAVAILABLE", 21, yellow);
-    } else if (!view.count) {
-      record_text(c, 73, 179, "NO SAVED GHOSTS", 21, cyan);
-      record_text(c, 73, 191, "RACE TO RECORD ONE", 21, cyan);
-    } else {
-      char label[32];
-      unsigned time = view.run.finish_centiseconds;
-      record_text(c, 73, 178, FzeroMachineName(view.run.machine), 21, yellow);
-      if (time)
-        snprintf(label, sizeof(label), "%u:%02u.%02u  %u/%u", time / 6000,
-                 time / 100 % 60, time % 100, view.index + 1, view.count);
-      else
-        snprintf(label, sizeof(label), "LEGACY RUN  %u/%u", view.index + 1, view.count);
-      record_text(c, 73, 189, label, 21, cyan);
-    }
-    if (view.count > 1) record_text(c, 73, 200, "L/R GHOST", 21, cyan);
-    record_text(c, 73, view.count > 1 ? 211 : 205, "SELECT TRACK", 21, cyan);
+    /* Keep the original course preview and PUSH SELECT prompt. Saved-run
+     * controls belong on the Mods page; only a genuine load error adds text. */
+    if (view.error != FZERO_GHOST_OK)
+      prompt_text(c, 88, 176, "GHOST ERROR", 2);
     return;
   }
-  if (view.panel == FZERO_GHOST_PANEL_SAVE || view.panel == FZERO_GHOST_PANEL_SAVED ||
-      view.panel == FZERO_GHOST_PANEL_INCOMPLETE) {
-    if (view.panel != FZERO_GHOST_PANEL_SAVE) {
-      const char *status = view.panel == FZERO_GHOST_PANEL_SAVED ?
-          "GHOST SAVED" : "GHOST INCOMPLETE";
-      prompt_text(c, 64, 80, status, 0);
-      prompt_text(c, 104, 112, "A OR B", 3);
-      return;
-    }
+  if (view.panel == FZERO_GHOST_PANEL_SAVE) {
     prompt_text(c, 80, 80, "SAVE GHOST ?", 0);
     if (view.error != FZERO_GHOST_OK)
       prompt_text(c, 72, 144, view.error == FZERO_GHOST_FULL ? "STORAGE LIMIT" : "SAVE FAILED", 2);

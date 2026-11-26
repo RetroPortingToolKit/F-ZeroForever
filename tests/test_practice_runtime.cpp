@@ -64,15 +64,17 @@ int main() {
     CHECK(view().panel == FZERO_GHOST_PANEL_SAVE);
     input(0); input(64); input(0);
     CHECK(view().selected);
-    CHECK(input(button) == 0);
-    CHECK(view().panel == FZERO_GHOST_PANEL_SAVED);
+    CHECK(input(button) == button);
+    CHECK(view().panel == FZERO_GHOST_PANEL_NONE);
     FzeroPracticeGhostSaveState(&state);
     CHECK(state.selected_run != 0);
     ++saved;
-    input(0); input(button); input(0);
-    CHECK(view().panel == FZERO_GHOST_PANEL_NONE);
+    CHECK(input(button) == 0); // Held confirmation cannot act a second time.
+    input(0);
 
-    finish(); input(0); input(button); input(0); input(button); input(0);
+    finish(); input(0); input(button); input(0);
+    CHECK(input(button) == button);
+    CHECK(input(button) == 0); input(0);
     CHECK(view().panel == FZERO_GHOST_PANEL_NONE); // No also confirms with B.
   }
   // A cold state load cannot publish a recording prefix that is no longer in memory.
@@ -81,8 +83,23 @@ int main() {
   FzeroPracticeGhostSaveState(&pending);
   FzeroPracticeGhostRoot(root.string().c_str());
   FzeroPracticeGhostLoadState(&pending, ram.data());
-  input(0); input(1);
-  CHECK(view().panel == FZERO_GHOST_PANEL_INCOMPLETE);
+  input(0); CHECK(input(1) == 1);
+  CHECK(view().panel == FZERO_GHOST_PANEL_NONE);
+  // Removing the course-info panel must preserve multiple-run selection.
+  ram[0x54] = 1; ram[0x55] = 4; ram[0x56] = 0; ram[0x5a] = 4;
+  input(0); input(32); input(0);
+  ram[0x54] = 2; ram[0x55] = 1; ram[0x56] = 1;
+  input(0);
+  FzeroPracticeGhostState chosen;
+  FzeroPracticeGhostSaveState(&chosen);
+  CHECK(view().count == saved && chosen.selected_run != 0);
+  input(2048); input(0);
+  FzeroPracticeGhostState next;
+  FzeroPracticeGhostSaveState(&next);
+  CHECK(next.selected_run != chosen.selected_run);
+  input(1024); input(0);
+  FzeroPracticeGhostSaveState(&next);
+  CHECK(next.selected_run == chosen.selected_run);
   FzeroPracticeGhostReset();
   unsigned files = 0;
   for (const auto &entry : fs::recursive_directory_iterator(root))

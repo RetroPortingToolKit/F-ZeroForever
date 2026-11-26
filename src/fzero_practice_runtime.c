@@ -267,8 +267,9 @@ uint16_t FzeroPracticeGhostInput(uint16_t input, const uint8_t *ram) {
      * its whole hold so it cannot also select an answer or leave results. */
     if (pressed & BUTTON_CONFIRM) {
       session.results_wait = false;
-      session.offer_save = true;
       session.consumed_input |= input & BUTTON_CONFIRM;
+      if (session.recording_lost) return input & BUTTON_CONFIRM;
+      session.offer_save = true;
     }
     return input & ~BUTTON_CONFIRM;
   }
@@ -285,9 +286,12 @@ uint16_t FzeroPracticeGhostInput(uint16_t input, const uint8_t *ram) {
         if (session.saved)
           fprintf(stderr, "[practice-ghost] saved course=%u finish=%u frames=%u\n",
                   session.course, session.finish_centiseconds, session.sample_count);
+        if (session.saved) session.offer_save = false;
       }
     }
-    return 0;
+    /* The same press completes the choice and advances the native results
+     * handler. Do not insert a second acknowledgment menu or button press. */
+    return session.offer_save ? 0 : input & BUTTON_CONFIRM;
   }
   return input;
 }
@@ -348,9 +352,8 @@ FzeroPracticeGhostView FzeroPracticeGhostViewAt(const uint8_t *ram) {
       view.index = session.selection;
       FzeroGhostGet(session.library, session.selection, &view.run);
     }
-  } else if (results(ram) && session.offer_save) {
-    view.panel = session.saved ? FZERO_GHOST_PANEL_SAVED :
-        session.recording_lost ? FZERO_GHOST_PANEL_INCOMPLETE : FZERO_GHOST_PANEL_SAVE;
+  } else if (results(ram) && session.offer_save && !session.recording_lost && !session.saved) {
+    view.panel = FZERO_GHOST_PANEL_SAVE;
     view.selected = session.save_yes;
   }
   return view;
@@ -373,7 +376,7 @@ bool FzeroPracticeGhostRivalVisible(const Ppu *ppu, const uint8_t *ram) {
 
 bool FzeroPracticeGhostScene(const uint8_t *ram) {
   return active(ram) && ((race(ram) && session.playback) ||
-                        (results(ram) && session.offer_save));
+                        (results(ram) && session.offer_save && !session.recording_lost && !session.saved));
 }
 
 bool FzeroPracticeGhostBuildShip(FzeroShip *ship, const uint8_t *ram) {
