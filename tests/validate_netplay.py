@@ -28,6 +28,7 @@ def main():
     p.add_argument('--aspect', choices=(0, 1, 2), type=int, default=1)
     p.add_argument('--lan-lobby', action='store_true', help='Create/join a real LAN/Direct IP waiting room before consuming its launch record')
     p.add_argument('--loss', action='store_true')
+    p.add_argument('--browser-flow', action='store_true', help='Also exercise the separate native browser fixture in the state scenario')
     p.add_argument('--hd-peer', action='store_true')
     p.add_argument('--rematch', action='store_true', help='Start another race after the finish fixture results')
     p.add_argument('--port', type=int, default=18770)
@@ -39,6 +40,7 @@ def main():
     p.add_argument('--latency', type=int, help='Actual added one-way UDP latency in milliseconds')
     p.add_argument('--peers-dir', type=Path, help='Persistent QA installation (default: BUILD/qa-peers); reuse for every case')
     a = p.parse_args()
+    if a.browser_flow and a.scenario!='state':p.error('--browser-flow requires --scenario state')
     if a.course_order < 0:
         p.error('course-order must be nonnegative')
     try:
@@ -88,7 +90,7 @@ def main():
             shutil.copytree(a.build / 'assets', install / 'assets', dirs_exist_ok=True)
             for name in ('config.ini', 'keybinds.ini'):
                 shutil.copy2(a.runtime / name, install / name)
-            if a.scenario == 'devices':
+            if a.scenario=='devices' or a.browser_flow:
                 config = install / 'config.ini'
                 text = config.read_text()
                 text, count = re.subn(r'(?m)^SourceP1\s*=.*$', 'SourceP1 = ' + str(2 if slot == 0 else 1), text)
@@ -141,7 +143,8 @@ def main():
             if a.scenario == 'titlestate' and slot == 0:
                 env.update(FZERO_STATE_SAVE_AT='335:4', FZERO_STATE_LOAD_AT='350:4')
             if a.scenario == 'state' and slot == 0:
-                env.update(FZERO_STATE_SAVE_AT='960:4', FZERO_STATE_LOAD_AT='1360:4', FZERO_TEST_ONLINE_MENU='1')
+                env.update(FZERO_STATE_SAVE_AT='960:4', FZERO_STATE_LOAD_AT='1360:4')
+                if a.browser_flow:env['FZERO_TEST_ONLINE_MENU']='1'
             if a.scenario == 'menuwrap' and slot == 0:
                 inputs += ',600-602:8,620-622:32,640-642:32,660-662:32,680-682:8'
             if a.scenario == 'pause':
@@ -222,7 +225,7 @@ def main():
         for slot,log_text in enumerate(text):
             records=[json.loads(row) for row in re.findall(r'\[snes-local-report\] (.+)',log_text)]
             if records:(a.out/('peer%d/local-reports.json'%slot)).write_text(json.dumps(records,indent=2)+'\n')
-    report = dict(sync_mode=a.sync_mode,latency=a.latency,lan_lobby=a.lan_lobby, scenario=a.scenario, machines=a.machines, cup=a.cup, course_order=a.course_order,
+    report = dict(sync_mode=a.sync_mode,latency=a.latency,lan_lobby=a.lan_lobby,browser_flow=a.browser_flow,scenario=a.scenario, machines=a.machines, cup=a.cup, course_order=a.course_order,
                   music=[a.music0, a.music1],
                   aspect=a.aspect, loss=a.loss, hd_peer=a.hd_peer,
                   force_mispredict=a.force_mispredict,
@@ -241,6 +244,10 @@ def main():
     else:
         assert report['exits'] == [0] * len(a.machines), report
         assert all('desync=0' in s for s in text), 'desync or missing final report'
+        if a.sync_mode=='local':
+            for log_text in text:
+                completed=re.findall(r'\[fzero-presentation\] simulation=(\d+)',log_text)
+                assert completed and int(completed[-1])>=frames-8,'peer left before the finite workload tail'
         assert all('starting UNVERIFIED' not in s for s in text), 'startup state verification timed out'
         if a.hd_peer:
             checks = re.findall(r'\[fzero-hd-parity\].*mismatches=(\d+)', text[1])
@@ -288,7 +295,9 @@ def main():
                 prefixes=re.findall(r'\[snes-local-prefix\] tick=(\d+) confirmed=(\d+) verified=(\d+)',text[i])
                 assert prefixes, 'missing local verified prefix'
                 local_tip,local_confirmed,verified=map(int,prefixes[-1])
-                assert local_tip==tip and local_confirmed==confirmed and 0<verified<=confirmed<=tip
+                # A final refusal/disconnect can reconcile the provider after
+                # the title cached its last finished-frame statistics.
+                assert local_tip==tip and confirmed<=local_confirmed and 0<verified<=local_confirmed<=tip
                 ends.append(offset+verified-1) # Local prefixes are exclusive.
             else:ends.append(offset+confirmed)
         assert len(set(offsets)) == 1, 'wire epochs differ'
@@ -342,10 +351,10 @@ def main():
             assert any(int(row['tick']) > 1100 and row['phase'] == '1' for row in shared), 'change race did not return to machine selection'
             assert any(int(row['tick']) > 1400 and row['stage'] == '2' for row in shared), 'changed race did not start'
         if a.scenario in ('state', 'titlestate'):
-            if a.scenario == 'state':
+            if a.browser_flow:
                 assert 'online-menu-test:' in text[0], 'real keyboard browser flow incomplete'
             assert all('hard_resync' in s or 'hard resync' in s for s in text), 'synchronized load epoch missing'
-            for slot in ((0, 4) if a.scenario == 'state' else (4,)):
+            for slot in ((0, 4) if a.browser_flow else (4,)):
                 files = [a.out / ('peer%d/saves/netplay/fzero/fzero-local-2p%d.sav' % (i, slot)) for i in range(len(a.machines))]
                 assert all(f.exists() for f in files), 'missing synchronized slot'
                 assert files[0].read_bytes() == files[1].read_bytes(), 'slot bytes differ'
