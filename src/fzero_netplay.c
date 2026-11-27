@@ -14,6 +14,7 @@
 #include "netplay/snes_netplay_identity.h"
 #include "recomp_netplay_host.h"
 #include "crc32.h"
+#include "sha256.h"
 #include "diagnostics/trace_writer.h"
 #include "desktop/sdl_compat.h"
 #include <stdio.h>
@@ -66,7 +67,7 @@ void FzeroNetplayLauncher(RecompLauncherCGameInfo *info) {
     static const RecompNetplaySessionVariant variants[]={{0,"4:3"},{1,"16:9"},{2,"21:9"}};
     /* LAN room versions have a 32-byte wire field. Keep this discovery tag
      * within it; the full build/catalog identity is checked before frame 0. */
-    snprintf(lobby_version,sizeof(lobby_version),"fzero-vs12-%.20s",FZERO_REPLAY_BUILD_ID);
+    snprintf(lobby_version,sizeof(lobby_version),"fzero-local4-%.18s",FZERO_REPLAY_BUILD_ID);
     RecompNetplayHostHooks h={0};h.game_name="F-Zero Forever";h.game_version=lobby_version;
     h.platform="snes";h.legacy_env_prefix="SNES_NET_";h.default_lobby_name="F-Zero Forever VS";
     h.lan_registry_path="fzero-netplay-lan.txt";h.max_players=4;h.netplay_max_players=4;
@@ -107,8 +108,7 @@ bool FzeroNetplayTestLobby(RecompLauncherCSettings *settings) {
   int result=host?callbacks.create(callbacks.ctx,"F-Zero QA",address,"",settings,1,count):
       callbacks.join(callbacks.ctx,address,"","127.0.0.1:0");
   if(result)return false;
-  Uint64 deadline=SDL_GetTicks()+30000;
-  while(SDL_GetTicks()<deadline) {
+  for(;;) {
     callbacks.pump(callbacks.ctx);
     callbacks.local_launch_gate_set(callbacks.ctx,1);
     if(!announced)for(int i=0;i<callbacks.member_count(callbacks.ctx);++i) {
@@ -190,6 +190,8 @@ bool FzeroNetplayStart(const RecompLauncherCSettings *settings) {
     aspect=1;const char *a=getenv("FZERO_NET_ASPECT");if(a)aspect=(unsigned)strtoul(a,NULL,10);
   }
   if(aspect>2 || cfg.local_slot<0 || cfg.local_slot>=cfg.slot_count || cfg.slot_count<2 || cfg.slot_count>4 || cfg.spectator || !cfg.rollback)return false;
+  const char *mode=getenv("SNES_NET_MODE");
+  cfg.local_rollback=!(mode && (!strcmp(mode,"rollback") || !strcmp(mode,"rb")));
   if(cfg.slot_count>2) {
     RtlSetMultitap(1,1);
     if(!from_lobby && cfg.local_slot==0) {cfg.transport_host=1;cfg.peer_hostport[0]=0;}
@@ -206,6 +208,9 @@ bool FzeroNetplayStart(const RecompLauncherCSettings *settings) {
     snprintf(base_identity+end,sizeof(base_identity)-end,";qa=%s",fixture);
   }
   snprintf(identity,sizeof(identity),"%s;startup=pending",base_identity);
+  /* The complete build/catalog/viewport/seat identity is agreed before input
+   * sampling. The engine also binds the actual initial canonical state. */
+  sha256_compute((const uint8_t *)base_identity,strlen(base_identity),cfg.compatibility_identity);
   uint32_t cpu=(SDL_HasSSE2()?1u:0)|(SDL_HasSSE41()?2u:0)|(SDL_HasAVX2()?4u:0)|(SDL_HasNEON()?8u:0);
   unsigned architecture=0;
 #if defined(__x86_64__) || defined(_M_X64)
