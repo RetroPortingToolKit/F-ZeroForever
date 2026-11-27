@@ -218,6 +218,10 @@ def main():
         finally:
             lock.unlink()
     text = [(a.out / ('peer%d/game.log' % i)).read_text(errors='replace') for i in range(len(a.machines))]
+    if a.sync_mode=='local':
+        for slot,log_text in enumerate(text):
+            records=[json.loads(row) for row in re.findall(r'\[snes-local-report\] (.+)',log_text)]
+            if records:(a.out/('peer%d/local-reports.json'%slot)).write_text(json.dumps(records,indent=2)+'\n')
     report = dict(sync_mode=a.sync_mode,latency=a.latency,lan_lobby=a.lan_lobby, scenario=a.scenario, machines=a.machines, cup=a.cup, course_order=a.course_order,
                   music=[a.music0, a.music1],
                   aspect=a.aspect, loss=a.loss, hd_peer=a.hd_peer,
@@ -229,7 +233,8 @@ def main():
         for slot,s in enumerate(text):
             assert f'[fzero-lobby-test] launch slot={slot} players={len(a.machines)} mask={(1<<len(a.machines))-1:x}' in s,'lobby launch roster differs'
     if a.scenario in ('reject', 'reject-catalog'):
-        assert all('mod_set_mismatch' in s for s in text), 'expected exact identity refusal'
+        refusal='execution_profile_refused' if a.sync_mode=='local' else 'mod_set_mismatch'
+        assert all(refusal in s for s in text), 'expected exact identity refusal'
         assert all('simulation=0' in s for s in text), 'incompatible peer admitted a simulation frame'
     else:
         assert report['exits'] == [0] * len(a.machines), report
@@ -278,9 +283,9 @@ def main():
             offset = last_tick - (tip - 1)
             offsets.append(offset)
             if a.sync_mode=='local':
-                prefix=re.search(r'\[snes-local-prefix\] tick=(\d+) confirmed=(\d+) verified=(\d+)',text[i])
-                assert prefix, 'missing local verified prefix'
-                local_tip,local_confirmed,verified=map(int,prefix.groups())
+                prefixes=re.findall(r'\[snes-local-prefix\] tick=(\d+) confirmed=(\d+) verified=(\d+)',text[i])
+                assert prefixes, 'missing local verified prefix'
+                local_tip,local_confirmed,verified=map(int,prefixes[-1])
                 assert local_tip==tip and local_confirmed==confirmed and 0<verified<=confirmed<=tip
                 ends.append(offset+verified-1) # Local prefixes are exclusive.
             else:ends.append(offset+confirmed)
