@@ -234,7 +234,9 @@ def main():
             assert f'[fzero-lobby-test] launch slot={slot} players={len(a.machines)} mask={(1<<len(a.machines))-1:x}' in s,'lobby launch roster differs'
     if a.scenario in ('reject', 'reject-catalog'):
         refusal='execution_profile_refused' if a.sync_mode=='local' else 'mod_set_mismatch'
-        assert all(refusal in s for s in text), 'expected exact identity refusal'
+        assert any(refusal in s for s in text), 'expected exact identity refusal'
+        assert all(refusal in s or 'reason=received_bye' in s for s in text), 'peer did not refuse or leave after refusal'
+        assert report['exits'] == [0] * len(a.machines), report
         assert all('simulation=0' in s for s in text), 'incompatible peer admitted a simulation frame'
     else:
         assert report['exits'] == [0] * len(a.machines), report

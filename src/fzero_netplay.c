@@ -136,6 +136,24 @@ bool FzeroNetplayWanted(const RecompLauncherCSettings *s) {
   return s->netplay_launch.enabled || (direct && !strcmp(direct,"1"));
 }
 static uint32_t hash(const void *p,size_t n) {return crc32_final(crc32_update(CRC32_INIT,p,n));}
+static bool executable_identity(const char *configuration,uint8_t out[32]) {
+  char path[4096];
+  if(!snesrecomp_loaded_exe_path(path,sizeof(path)))return false;
+  FILE *file=fopen(path,"rb");if(!file)return false;
+  if(fseek(file,0,SEEK_END)!=0) {fclose(file);return false;}
+  long length=ftell(file);
+  if(length<=0 || (uintmax_t)length>SIZE_MAX || fseek(file,0,SEEK_SET)!=0) {fclose(file);return false;}
+  uint8_t *bytes=malloc((size_t)length);if(!bytes) {fclose(file);return false;}
+  bool ok=fread(bytes,1,(size_t)length,file)==(size_t)length && fgetc(file)==EOF && !ferror(file);
+  fclose(file);
+  if(ok) {
+    uint8_t identity[64];
+    sha256_compute((const uint8_t *)configuration,strlen(configuration),identity);
+    sha256_compute(bytes,(size_t)length,identity+32);
+    sha256_compute(identity,sizeof(identity),out);
+  }
+  free(bytes);return ok;
+}
 static int check_set(const char *want,char *reason,uint32_t capacity) {
   if(want && !strcmp(want,identity))return 0;
   snprintf(reason,capacity,"F-Zero build, course catalog, viewport or execution profile differs. Match the host's build and enabled course packs.");
@@ -209,7 +227,10 @@ bool FzeroNetplayStart(const RecompLauncherCSettings *settings) {
   snprintf(identity,sizeof(identity),"%s;startup=pending",base_identity);
   /* The complete build/catalog/viewport/seat identity is agreed before input
    * sampling. The engine also binds the actual initial canonical state. */
-  sha256_compute((const uint8_t *)base_identity,strlen(base_identity),cfg.compatibility_identity);
+  if(cfg.local_rollback && !executable_identity(base_identity,cfg.compatibility_identity)) {
+    fprintf(stderr,"[fzero-netplay] Unable to verify this game build for netplay\n");
+    FzeroOnlineEnd();return false;
+  }
   uint32_t cpu=(SDL_HasSSE2()?1u:0)|(SDL_HasSSE41()?2u:0)|(SDL_HasAVX2()?4u:0)|(SDL_HasNEON()?8u:0);
   unsigned architecture=0;
 #if defined(__x86_64__) || defined(_M_X64)
