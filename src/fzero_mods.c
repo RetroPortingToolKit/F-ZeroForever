@@ -51,8 +51,8 @@ static bool callouts_ready(void) {
 }
 static const char local_description[]="Enabled by default. Add VS MODE to the main menu. Two to four humans race on one shared course. Two players use top/bottom views; three or four use a four-view grid. Choose the player count below, or press Y on P1's machine-selection page. Online uses the lobby player count. Choose from all twelve machines and the installed single-player course catalog. All twelve ships use their authored CGP artwork, handling, energy boosts and exhaust. Your single-player content settings are retained.";
 static const char fps_description[] =
-  "Show the game's simulation FPS using the shared on-screen readout. "
-  "Normal game speed is about 60 FPS even when Presentation FPS draws more images. "
+  "Show measured simulation and interpolated presentation rates: 60 FPS (144 interp). "
+  "Normal simulation speed is about 60 FPS; the rate in parentheses counts presented images. "
   "Toggle here or use the FPS readout shortcut in Controls (F by default). "
   "Independent of presentation settings and local recording.";
 static const char crash_description[] =

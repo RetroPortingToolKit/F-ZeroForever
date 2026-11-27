@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0-alpha.6 - Simulation and interpolated FPS
+
+- Show both measured rates in the optional Game FPS readout, for example
+  `60 FPS (144 interp)`. The parenthesized rate counts completed presentations.
+- Restart rate sampling after a pause, load or presentation pacing change.
+
 ## 2.2.0 - Practice ghosts for every setup
 
 - Add **Mods > Practice ghosts**, on by default. Recording, **Save Ghost?** and

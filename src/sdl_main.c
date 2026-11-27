@@ -1783,9 +1783,10 @@ static void selftest_main_tick(long frame) {
       bool ok=g_video.fps_readout==visible && snes_osd_fps_visible()==visible &&
           FzeroVideoLoad(&saved,kVideoConfig) && saved.fps_readout==visible &&
           saved.crash_replay==initial.crash_replay && saved.fps_enabled==initial.fps_enabled && saved.fps==initial.fps;
-      if(visible)ok=ok && snes_osd_fps()>0 && snes_osd_image(&pixels,&w,&h) && pixels && w>0 && h>0;
+      if(visible)ok=ok && snes_osd_fps()>0 && snes_osd_interpolated_fps()>0 &&
+          strstr(snes_osd_status_text()," interp)") && snes_osd_image(&pixels,&w,&h) && pixels && w>0 && h>0;
       if(!ok) {fputs("game-fps-selftest: FAIL hotkey/image/saved choices\n",stderr);g_selftest_failed=1;step=4;}
-      else if(step==1)step=2;
+      else if(step==1){fprintf(stderr,"game-fps-selftest: visible=%s\n",snes_osd_status_text());step=2;}
       else {fprintf(stderr,"game-fps-selftest: PASS key=%u visible/saved roundtrip, rate=%g, recording=%d unchanged\n",(unsigned)g_hotkey_fps.key,snes_osd_fps(),saved.crash_replay);step=4;}
     } else if(step==2 && frame>=g_selftest_frame+16) {
       selftest_push_key(g_hotkey_fps.key);step=3;
@@ -2537,6 +2538,7 @@ static int run_game(int argc, char **argv) {
     }
   }
   FzeroClockReset(&clock, monotonic_seconds(), hz);
+  snes_osd_reset_fps();
   bool suspended = false;
   const FzeroScriptedState scripted_save = parse_scripted_state("FZERO_STATE_SAVE_AT");
   const FzeroScriptedState scripted_load = parse_scripted_state("FZERO_STATE_LOAD_AT");
@@ -2910,6 +2912,7 @@ static int run_game(int argc, char **argv) {
         hz = next_hz;
         clock.presentation_hz = hz;
         clock.next_presentation = now;
+        snes_osd_reset_fps();
       }
       next_display_check = now + 0.25;
     }
@@ -2917,6 +2920,7 @@ static int run_game(int argc, char **argv) {
       FzeroDiagnosticsEvent("clock_reset", 0);
       missed_presentations += clock.missed_presentations;
       FzeroClockReset(&clock, now, hz);
+      snes_osd_reset_fps();
       g_reset_presentation_clock = false;
     }
     /* Hotkeys act the moment they are pressed, not on the next simulation
@@ -3102,6 +3106,7 @@ static int run_game(int argc, char **argv) {
       FzeroDiagnosticsEnd(FZERO_DIAG_COMPOSITION, diagnostic_start);
       if(online && snes_savestate_menu_is_open())present_overlay(&presenter,1);
       else present_frame(&presenter, NULL, 0, 0, 0);
+      snes_osd_note_presentation();
       /* Setup draws native picker artwork through present_frame too. Only
        * the completed gameplay presentation establishes effective HD detail. */
       hd_presentation_feedback(use_gl_renderer && gl_renderer.hd_presented?
