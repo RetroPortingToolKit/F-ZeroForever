@@ -35,6 +35,7 @@
 #include "fzero_online.h"
 #include "fzero_vs_menu.h"
 #include "snapshot_guard.h"
+#include "netplay/snes_netplay.h"
 
 #include "common_rtl.h"
 #include "cpu_state.h"
@@ -777,7 +778,9 @@ static bool online_frame_begin(uint32_t *inputs) {
    * of wall-clock racing ticks. Enter before RtlRunFrame establishes its
    * frame clock/watchdog; each inner native frame has its own complete clock.
    * Capture the real loader/grid and stop before advancing either racer.
-   * Rollback repeats exactly this work; no devices, transport or time queried. */
+   * Rollback repeats the same simulation work. Passive transport service
+   * keeps peers alive without sampling pads, admitting another network frame
+   * or applying queued game state while this transition owns the machine. */
   s_online_bootstrap=true;
   s_online_menu_bootstrap=menu;bool ready=false;
   for(unsigned n=0;n<2400 && s_last_lle_result && !g_fail;++n) {
@@ -785,6 +788,7 @@ static bool online_frame_begin(uint32_t *inputs) {
         !g_ram[0x54] && g_ram[0x55]==1 && g_ram[0x5d]==15 && !g_ram[0xc3];
     if(ready)break;
     (void)RtlRunFrame(0);FzeroDrawPpuFrame();
+    if((n&15u)==15u)snes_netplay_pump_transport();
   }
   s_online_bootstrap=s_online_menu_bootstrap=false;
   ready=loading?FzeroLocalSession()!=NULL:
@@ -1141,7 +1145,7 @@ static void fzero_on_state_loaded(uint32_t version) {
 
   if (!s_loaded_runtime_state) return;
 
-  /* Course-owned native ROM shading is derived data, not serialized ROM. */
+  /* Refresh course-owned presentation resources after restoring the machine. */
   FzeroTracksRefreshPresentation();
 
   /* Host pacing cursors, not guest state: point them at the restored counters

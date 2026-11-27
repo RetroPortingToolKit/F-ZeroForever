@@ -32,6 +32,7 @@
 #include "save_state_slots.h"
 #include "cpu_state.h"
 #include "sha256.h"
+#include "netplay/snes_state_digest.h"
 #include "snes_rewind.h"
 #include "snes/apu.h"
 #include "snes/cart.h"
@@ -364,6 +365,29 @@ static bool local_state_atomic_test(void) {
   }
   free(before);free(bad);free(after);
   if(ok)fputs("local-state: corrupt, truncated, wrong-identity and invalid-course loads rejected before live mutation\n",stderr);
+  /* Exercise the actual canonical snapshot/restore contract with an ordinary
+   * mapped cartridge write. No game frame runs with this temporary edit. */
+  if(ok) {
+    size_t capacity=RtlRollbackSnapshotBound();
+    uint8_t *first=malloc(capacity),*second=malloc(capacity);
+    uint8_t original=g_snes->cart->rom[0];
+    size_t first_size=first?RtlNetplaySnapshotToMemory(first,capacity):0;
+    SnesStateDigestParts first_digest,second_digest;
+    snes_state_digest_parts(&first_digest);
+    g_snes->cart->rom[0]^=1;
+    size_t second_size=second?RtlNetplaySnapshotToMemory(second,capacity):0;
+    snes_state_digest_parts(&second_digest);
+    ok=first_size && second_size==first_size && first_digest.master!=second_digest.master &&
+       RtlRollbackLoadFromMemory(first,first_size) && g_snes->cart->rom[0]==original &&
+       snes_state_digest(SNES_DIGEST_PART_CART)==first_digest.cart &&
+       RtlRollbackLoadFromMemory(second,second_size) && g_snes->cart->rom[0]==(uint8_t)(original^1) &&
+       snes_state_digest(SNES_DIGEST_PART_CART)==second_digest.cart &&
+       RtlRollbackLoadFromMemory(first,first_size) && g_snes->cart->rom[0]==original &&
+       snes_state_digest(SNES_DIGEST_PART_CART)==first_digest.cart;
+    g_snes->cart->rom[0]=original;
+    free(first);free(second);
+    if(ok)fputs("local-state: mapped cartridge edits change the canonical hash and restore in both directions\n",stderr);
+  }
   return ok;
 }
 

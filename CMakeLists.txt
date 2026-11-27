@@ -281,7 +281,8 @@ add_executable(FZeroSNESRecompHeadless
     ${FZERO_GEN_SOURCES}
     src/headless_host.c
     src/headless_main.c
-    src/fzero_runtime.c)
+    src/fzero_runtime.c
+    "${SNESRECOMP_ROOT}/runner/src/netplay/snes_state_digest.c")
 target_link_libraries(FZeroSNESRecompHeadless PRIVATE fzero_actor)
 
 # The desktop host takes the REAL host_report.c (always-on breadcrumb ring,
@@ -430,7 +431,8 @@ list(APPEND FZERO_BUILD_INPUTS "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt"
   list(APPEND FZERO_BUILD_INPUTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/fzero_online_ui_driver.h")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FZERO_BUILD_INPUTS})
 set(fingerprint "${SNESRECOMP_BUILD_VERSION};${FZERO_SOURCE_REVISION};${FZERO_FRAMEWORK_REVISION};${FZERO_UI_REVISION};${CMAKE_BUILD_TYPE};${CMAKE_C_COMPILER_ID};${CMAKE_C_COMPILER_VERSION};${CMAKE_C_FLAGS};${CMAKE_C_FLAGS_RELEASE}")
-string(APPEND fingerprint ";apu=${SNESRECOMP_APU_TIME_IMPL};crc=${SNESRECOMP_CRC32_IMPL};frame=${SNESRECOMP_FRAME_IMPL};ppu8=${SNESRECOMP_PPU_8BPP_IMPL}")
+string(APPEND fingerprint ";apu=${SNESRECOMP_APU_TIME_IMPL};dsp=${SNESRECOMP_DSP_MIX_IMPL};crc=${SNESRECOMP_CRC32_IMPL};frame=${SNESRECOMP_FRAME_IMPL};ppu8=${SNESRECOMP_PPU_8BPP_IMPL}")
+string(APPEND fingerprint ";target=${CMAKE_SYSTEM_NAME}:${CMAKE_SYSTEM_PROCESSOR}:${CMAKE_C_COMPILER_TARGET};cxx=${CMAKE_CXX_COMPILER_ID}:${CMAKE_CXX_COMPILER_VERSION}:${CMAKE_CXX_FLAGS}:${CMAKE_CXX_FLAGS_RELEASE}")
 foreach(input IN LISTS FZERO_BUILD_INPUTS)
     file(SHA256 "${input}" input_hash)
     get_filename_component(input_name "${input}" NAME)
