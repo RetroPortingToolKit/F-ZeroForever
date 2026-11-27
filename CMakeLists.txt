@@ -281,7 +281,8 @@ add_executable(FZeroSNESRecompHeadless
     ${FZERO_GEN_SOURCES}
     src/headless_host.c
     src/headless_main.c
-    src/fzero_runtime.c)
+    src/fzero_runtime.c
+    "${SNESRECOMP_ROOT}/runner/src/netplay/snes_state_digest.c")
 target_link_libraries(FZeroSNESRecompHeadless PRIVATE fzero_actor)
 
 # The desktop host takes the REAL host_report.c (always-on breadcrumb ring,
