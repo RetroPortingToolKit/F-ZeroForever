@@ -142,11 +142,13 @@ the IPS/BPS file; the importer accepts ZIP archives directly.
 your choice. Named presets saved from Mods include the choice you saved.
 
 In **Vanilla**, start **Practice**, choose **No Rival** or **Ghost**, and finish
-the race. Choose **YES** at **Save Ghost?** to add the run to that course's
-library. To race a recording, choose **Ghost** and look for the selected car
-and time on the course preview. The fastest timed run appears first. Use
-**L/R** to choose among available runs and **Select** to change courses.
-Older imported runs can appear without a time.
+the race. Confirm the highlighted **YES** or **NO** choice with **B** at
+**Save Ghost?**. **YES** adds the run to that course's library; either choice
+continues through the native results flow without another acknowledgment.
+To race a recording, choose **Ghost**. The fastest timed run is selected first.
+Use **L/R** on the original course preview to choose among available runs and
+**Select** to change courses. The native course outline and **PUSH SELECT**
+prompt remain visible; no extra information panel covers them.
 
 The library lives in the `practice-ghosts` folder inside your save folder.
 Practice times and unlocks use the regular game save. Turning Practice ghosts
