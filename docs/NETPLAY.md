@@ -1,5 +1,19 @@
 # F-Zero versus netplay
 
+This experimental Alpha 6 branch uses local correction: each client rewinds
+and replays late inputs without stopping every participant for an episode
+handshake. It keeps the existing host hub, lobby, ICE and TURN paths. Release
+clients use a different room version. Before input sampling, clients must agree
+on the complete build, course catalog, viewport, roster, initial canonical
+state and qualified execution profile.
+
+The initial local provider retains eight frames of rollback and uses the
+lobby's selected input delay, default two. Measured adaptive delay selection is
+not enabled in this first port. `SNES_NET_MODE=rollback` retains the previous
+episode provider for matched comparisons; the branch normally selects local
+correction. Local multi-process checks and deployed Internet/TURN qualification
+are separate results.
+
 Open recomp-ui, choose **Netplay**, then use the existing **LAN / Direct IP**
 or **Online Netplay** flow. This uses the same shared lobby, account, ICE,
 transport and rollback implementation as the other recomp titles. LAN rooms

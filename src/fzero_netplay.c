@@ -129,7 +129,6 @@ bool FzeroNetplayTestLobby(RecompLauncherCSettings *settings) {
     }
     SDL_Delay(2);
   }
-  fprintf(stderr,"[fzero-lobby-test] timed out\n");return false;
 }
 bool FzeroNetplayResume(void) {return resume;}
 bool FzeroNetplayWanted(const RecompLauncherCSettings *s) {

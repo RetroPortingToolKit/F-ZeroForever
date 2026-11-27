@@ -197,9 +197,11 @@ def main():
                     time.sleep(.05)
             else:
                 time.sleep(.2)
-        # Lifecycle runs can be much longer than selection. This is a logic
-        # gate, not a sustained-performance qualification on a busy desktop.
+        # Each peer exits at its finite simulation-frame endpoint. A slower
+        # healthy host remains running; an actual peer failure ends the case.
         while any(proc.poll() is None for proc in processes):
+            failed=[proc.returncode for proc in processes if proc.poll() not in (None,0)]
+            assert not failed, 'peer failed while the other seats were active: '+str(failed)
             time.sleep(.25)
     finally:
         for proc in processes:
@@ -275,7 +277,13 @@ def main():
             last_tick = last_ticks[i]
             offset = last_tick - (tip - 1)
             offsets.append(offset)
-            ends.append(offset + confirmed)
+            if a.sync_mode=='local':
+                prefix=re.search(r'\[snes-local-prefix\] tick=(\d+) confirmed=(\d+) verified=(\d+)',text[i])
+                assert prefix, 'missing local verified prefix'
+                local_tip,local_confirmed,verified=map(int,prefix.groups())
+                assert local_tip==tip and local_confirmed==confirmed and 0<verified<=confirmed<=tip
+                ends.append(offset+verified-1) # Local prefixes are exclusive.
+            else:ends.append(offset+confirmed)
         assert len(set(offsets)) == 1, 'wire epochs differ'
         common = sorted(tick for tick in set.intersection(*(set(row) for row in rows))
                         if offsets[0] <= tick <= min(ends))
