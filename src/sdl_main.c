@@ -2540,6 +2540,8 @@ static int run_game(int argc, char **argv) {
   FzeroClockReset(&clock, monotonic_seconds(), hz);
   snes_osd_reset_fps();
   bool suspended = false;
+  const char *review_control = getenv("FZERO_REVIEW_CONTROL");
+  bool review_paused = false;
   const FzeroScriptedState scripted_save = parse_scripted_state("FZERO_STATE_SAVE_AT");
   const FzeroScriptedState scripted_load = parse_scripted_state("FZERO_STATE_LOAD_AT");
   bool scripted_save_done=false,scripted_load_done=false;
@@ -2882,6 +2884,32 @@ static int run_game(int argc, char **argv) {
     if (monotonic_seconds() - debug_wait_start > 0.1)
       g_reset_presentation_clock = true;
     if (!running) break;
+    if (review_control && *review_control) {
+      char command[16] = "play";
+      FILE *control = fopen(review_control, "rb");
+      if (control) { if (!fgets(command, sizeof(command), control)) command[0] = 0; fclose(control); }
+      if (!strncmp(command, "quit", 4)) { running = 0; break; }
+      const FzeroVersusSnapshot *review_race = FzeroVersusCompleted(FzeroLocalSession());
+      bool hold = !strncmp(command, "pause", 5) ||
+        (!strncmp(command, "prepare", 7) && online &&
+         FzeroOnlineCompleted()->phase == FZERO_ONLINE_RACE && review_race && review_race->race_tick >= 120);
+      if (hold != review_paused) {
+        review_paused = hold;
+        snesrecomp_sdl_pause_audio_device(audio, hold || !launcher_settings.enable_audio);
+        g_reset_presentation_clock = true;
+        fprintf(stderr, "[owner-review] paused=%u frame=%ld race=%llu pad=%s\n", hold, frames,
+          (unsigned long long)(review_race ? review_race->race_tick : 0),
+          pad ? SDL_GameControllerName(pad) : "none");
+        fflush(stderr);
+      }
+      if (hold) {
+        /* Review controls freeze all test peers without advancing inputs.
+         * Keep their existing connections serviced while the owner waits. */
+        if (online) snes_netplay_pump_transport();
+        SDL_Delay(5);
+        continue;
+      }
+    }
     if(g_compare_pause_after_frame)paused=0;
     bool should_suspend = !local_two_player && (paused || (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED));
     if (should_suspend != suspended) {

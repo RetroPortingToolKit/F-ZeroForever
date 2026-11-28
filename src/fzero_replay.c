@@ -1,6 +1,7 @@
 #include "fzero_replay.h"
 #include <errno.h>
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -11,6 +12,7 @@ static Span spans[128];
 static View views[128];
 static unsigned span_count, view_count;
 static bool has_input;
+static unsigned handoff_frame;
 
 static bool number(const char **p, unsigned *value) {
   if (!isdigit((unsigned char)**p)) return false;
@@ -27,6 +29,9 @@ bool FzeroReplayConfigurePlayers(const char *inputs,const char *viewports,unsign
   if(players!=1 && players!=2)return false;
   span_count = view_count = 0;
   has_input = inputs && *inputs;
+  handoff_frame = UINT_MAX;
+  const char *handoff = getenv("FZERO_REVIEW_INPUT_HANDOFF");
+  if (handoff && *handoff && (!number(&handoff, &handoff_frame) || *handoff)) return false;
   const char *p = inputs ? inputs : "";
   while (*p) {
     if (span_count == 128) return false;
@@ -67,6 +72,12 @@ bool FzeroReplayConfigurePlayers(const char *inputs,const char *viewports,unsign
 }
 bool FzeroReplayHasInput(void) { return has_input; }
 uint32_t FzeroReplayInput(unsigned frame) {
+  if (frame >= handoff_frame) {
+    has_input = false;
+    fprintf(stderr, "[owner-review] physical input handoff frame=%u\n", frame);
+    fflush(stderr);
+    return 0;
+  }
   uint32_t mask = 0;
   for (unsigned i = 0; i < span_count; ++i)
     if (frame >= spans[i].first && frame <= spans[i].last) mask |= spans[i].mask;
