@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.0-alpha.7 - Experimental local-correction netplay
+
+- Correct late remote inputs locally, reducing the need to stop every player
+  for a coordinated correction. Keep a small fixed input buffer in this alpha.
+- Retain and repair verified input history for every player in three- and
+  four-player sessions, including recovery from lost control messages.
+- Keep connections serviced during course setup, and verify matching builds
+  and game settings before a match starts. Existing relay services are unchanged.
+- Add opt-in native controls for reproducible multiplayer playtests.
+- This remains experimental: connection waits and correction work can still
+  cause hitches. Automatic buffer tuning and deployed online/TURN qualification
+  remain open.
+
 ## 2.2.0-alpha.6 - Simulation and interpolated FPS
 
 - Show both measured rates in the optional Game FPS readout, for example
