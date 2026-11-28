@@ -333,25 +333,9 @@ notices.mkdir()
 
 
 def resolve_windows_dlls():
-    pending, seen = [stage / "F-Zero Forever.exe"] + [stage / p.name for p in import_helpers], set()
-    system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
-    while pending:
-        binary = pending.pop()
-        imports = subprocess.check_output([str(mingw / "bin/objdump.exe"), "-p", str(binary)], text=True)
-        for dll in re.findall(r"DLL Name:\s*(\S+)", imports):
-            key = dll.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            if key.startswith(("api-ms-", "ext-ms-")) or (system / dll).is_file():
-                continue
-            source = next((directory / dll for directory in (build, mingw / "bin")
-                           if (directory / dll).is_file()), None)
-            if source is None:
-                raise SystemExit(f"Unresolved runtime DLL: {dll}")
-            target = stage / dll
-            shutil.copy2(source, target)
-            pending.append(target)
+    sys.path.insert(0, str(dependency_roots["snesrecomp"] / "tools/release"))
+    from runtime_dependencies import bundle_windows_runtime
+    bundle_windows_runtime(stage, (build, mingw / "bin"))
     for package in ("gcc-libs", "libiconv", "libwinpthread", "winpthreads", "SDL3", "crt", "headers", "libxml2", "libpng", "rapidjson", "zlib", "zstd", "bzip2", "brotli", "openssl", "expat", "xz", "libb2"):
         source = mingw / "share/licenses" / package
         if source.is_dir():
